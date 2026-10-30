@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>우리 마을 꾸미기 - 함께 만드는 친환경 마을 (개발자 버전)</title>
+  <meta name="description" content="학급 친구들과 함께 10x10 나만의 대지에 집을 짓고 개발도상국 자원 구역에서 채취하는 3D 복셀 샌드박스 웹 게임" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <!-- 3D WebGL Canvas Container -->
+  <div id="game-container"></div>
+
+  <!-- 십자선 (Crosshair) & 채굴 진행도 -->
+  <div id="crosshair"></div>
+  <div id="mining-progress-ring">
+    <svg viewBox="0 0 36 36" class="circular-chart">
+      <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+      <path id="mining-circle-fill" class="circle" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+    </svg>
+  </div>
+
+  <!-- 피격 시 화면 붉은 플래시 -->
+  <div id="damage-vignette"></div>
+
+  <!-- HUD 레이어 -->
+  <div id="hud-overlay">
+    <!-- 상단 상태바 & 월드 텔레포트 탭 -->
+    <header id="top-bar">
+      <div class="left-nav">
+        <div class="village-badge">
+          <span class="village-icon">🏡</span>
+          <span id="room-display">우리 반 마을</span>
+        </div>
+
+        <!-- 월드 텔레포트 스위처 -->
+        <div class="world-switcher" role="tablist">
+          <button id="btn-world-town" class="world-tab active" tabindex="-1" title="평지 마을: 나만의 10x10 대지에서 집을 짓습니다">
+            <span class="tab-icon">🏠</span> 평지 마을
+          </button>
+          <button id="btn-world-resource" class="world-tab" tabindex="-1" title="자원 구역 (개발도상국): 풍부한 나무와 광물을 채취하는 전용 구역 (건축 불가)">
+            <span class="tab-icon">⛏️</span> 자원 구역
+          </button>
+          <button id="btn-quick-return" class="world-tab quick-return-btn hidden" tabindex="-1" title="평지 마을(내 대지)로 즉시 귀환 (단축키: [)">
+            <span class="tab-icon">🏡</span> 마을 귀환 ([)
+          </button>
+        </div>
+      </div>
+
+      <div class="stats-pills">
+        <div class="pill eco-pill" id="current-zone-pill" title="현재 위치 구역">
+          <span class="pill-icon">📍</span>
+          <span id="current-zone-label">마을 평지</span>
+        </div>
+        <div class="pill peace-pill" title="평화 협동 모드: 플레이어 간 공격(PVP) 불가">
+          <span class="pill-icon">🛡️</span>
+          <span>평화 모드</span>
+        </div>
+        <div class="pill player-pill" title="내 대지 할당 정보">
+          <span class="pill-icon">🏷️</span>
+          <span id="player-display">나의 대지 (#1)</span>
+        </div>
+        <div class="pill fly-pill hidden" id="fly-mode-pill" title="비행 중 (F키로 비행 토글 / Space:상승 / Shift:하강)">
+          <span class="pill-icon">✈️</span>
+          <span>비행 중 (F)</span>
+        </div>
+        <button id="btn-open-crafting" class="craft-toggle-btn" tabindex="-1" title="조합대 열기 (단축키: E 또는 C)">
+          🪑 조합/제작
+        </button>
+        <button id="btn-toggle-dev" class="dev-toggle-btn" tabindex="-1" title="개발자 도구 (시간 조절 & 구역 초기화)">
+          ⚙️ 개발자 도구
+        </button>
+      </div>
+    </header>
+
+    <!-- 중앙 알림 및 전조 이벤트 배너 -->
+    <div id="notification-banner" class="hidden">
+      <span id="notification-icon">⚠️</span>
+      <span id="notification-text">알림 메시지</span>
+    </div>
+
+    <!-- 마우스 자유 조작 모드 알림 칩 -->
+    <div id="mouse-mode-hint" class="mouse-mode-hint hidden">
+      <span class="mouse-icon">🖱️</span>
+      <span><strong>마우스 자유 모드</strong> (3D 화면을 클릭하면 1인칭 조작으로 복귀합니다)</span>
+    </div>
+
+    <!-- 하단 생존 게이지 & 핫바 -->
+    <footer id="bottom-controls">
+      <!-- 생존 상태 (하트 체력) -->
+      <div id="survival-bar">
+        <div id="hearts-container" title="체력 (HP)"></div>
+      </div>
+
+      <!-- 마인크래프트 핫바 (블록 슬롯) -->
+      <div id="hotbar" role="toolbar" aria-label="블록 단축바">
+        <!-- JS에서 슬롯 1~9 동적 생성 -->
+      </div>
+    </footer>
+  </div>
+
+  <!-- 개발자 패널 (Admin Panel) -->
+  <div id="dev-panel" class="dev-panel hidden">
+    <div class="dev-panel-header">
+      <div class="dev-title">
+        <span class="dev-icon">🛠️</span>
+        <h3>개발자 모드 컨트롤러</h3>
+      </div>
+      <button id="btn-close-dev" class="close-btn" title="닫기">✕</button>
+    </div>
+
+    <div class="dev-panel-body">
+      <!-- 1. 시간 조절 슬라이더 섹션 -->
+      <section class="dev-section">
+        <div class="section-title">
+          <span>⏰ 월드 환경 조명 (항상 밝은 낮)</span>
+          <span id="time-display" class="highlight-badge">12:00 (화창한 낮 고정)</span>
+        </div>
+        <div class="slider-wrapper">
+          <input type="range" id="time-slider" min="0" max="24" step="0.1" value="12" />
+          <div class="slider-ticks">
+            <span>00:00(밤)</span>
+            <span>06:00(새벽)</span>
+            <span>12:00(정오)</span>
+            <span>18:00(노을)</span>
+            <span>24:00</span>
+          </div>
+        </div>
+        <div class="time-presets">
+          <button class="preset-btn" data-time="6">🌅 일출 (06시)</button>
+          <button class="preset-btn" data-time="12">☀️ 정오 (12시)</button>
+          <button class="preset-btn" data-time="18.5">🌇 노을 (18시반)</button>
+          <button class="preset-btn" data-time="0">🌙 자정 (00시)</button>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label" for="time-flow-checkbox">
+            <span>시간 자동 흐름 진행 (기본: 비활성화 / 항상 낮)</span>
+          </label>
+          <input type="checkbox" id="time-flow-checkbox" />
+        </div>
+      </section>
+
+      <!-- 2. 10x10 구획(Plot) 할당 섹션 -->
+      <section class="dev-section">
+        <div class="section-title">
+          <span>📐 10x10 구획(대지) 할당</span>
+          <span class="sub-badge">16개 대지</span>
+        </div>
+        <p class="section-desc">플레이어에게 전용 10x10 건축 구획을 할당합니다. 주거지에서는 본인 대지에만 건축할 수 있습니다.</p>
+        <div class="form-row">
+          <label for="plot-selector">할당 대지 번호:</label>
+          <select id="plot-selector" class="dev-select">
+            <!-- 1 ~ 16 대지 동적 옵션 -->
+          </select>
+        </div>
+        <div class="btn-group">
+          <button id="btn-teleport-plot" class="action-btn">🚀 내 대지로 이동</button>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label" for="dev-bypass-checkbox">
+            <span>개발자 건축 제한 무시 (모든 곳 건축 허용)</span>
+          </label>
+          <input type="checkbox" id="dev-bypass-checkbox" />
+        </div>
+      </section>
+
+      <!-- 2-1. 특정 구역(대지) 건축물 초기화 (선생님 전용 / 장난 복구용) -->
+      <section class="dev-section">
+        <div class="section-title">
+          <span>🧹 특정 학생 구역 건축물 초기화</span>
+          <span class="sub-badge danger-badge">장난/훼손 복구</span>
+        </div>
+        <p class="section-desc">특정 학생이 부적절한 건축물이나 장난을 쳤을 경우, 해당 학생의 10x10 대지만을 기본 평지로 깨끗하게 복구합니다. (모든 학생 화면에 즉시 동기화)</p>
+        <div class="form-row">
+          <label for="reset-plot-selector">초기화할 대지 번호:</label>
+          <select id="reset-plot-selector" class="dev-select">
+            <!-- 1 ~ 16 대지 동적 옵션 -->
+          </select>
+        </div>
+        <div class="btn-group">
+          <button id="btn-reset-specific-plot" class="action-btn danger-btn">
+            🧹 선택한 대지 건축물 즉시 초기화
+          </button>
+        </div>
+      </section>
+
+      <!-- 3. 환경 대재앙 시뮬레이터 (Phase 3: 홍수 & 마그마 분출) -->
+      <section class="dev-section disaster-section">
+        <div class="section-title">
+          <span>🌊🌋 환경 대재앙 시뮬레이터</span>
+          <span class="sub-badge" id="disaster-status-badge">평화 상태</span>
+        </div>
+        <p class="section-desc">무분별한 자연 훼손으로 인한 해수면 폭주(대홍수)와 지반 마그마 역류를 즉시 시뮬레이션합니다.</p>
+        <div class="btn-group">
+          <button id="btn-trigger-disaster" class="action-btn danger-btn">
+            🚨 대재앙 즉시 발동 (홍수 & 마그마 분출)
+          </button>
+          <button id="btn-reset-disaster" class="action-btn restore-btn">
+            🕊️ 평화 상태로 복구 / 리셋
+          </button>
+        </div>
+        <div class="form-row" style="margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sub);">
+            <span>해수면 높이 (수위):</span>
+            <span id="water-height-val" style="color: #38bdf8; font-weight: 700;">Y = 1.0 (평화)</span>
+          </div>
+          <input type="range" id="water-height-slider" min="0" max="10" step="0.2" value="1.0" />
+        </div>
+      </section>
+
+      <!-- 4. 개발자 비행(플라이) 모드 -->
+      <section class="dev-section fly-section">
+        <div class="section-title">
+          <span>✈️ 개발자 비행 모드 (Fly Mode)</span>
+          <span class="sub-badge" id="fly-status-badge">비행 비활성화</span>
+        </div>
+        <p class="section-desc">중력을 무시하고 하늘을 자유롭게 날아다니며 마을 전체와 자원 구역을 신속하게 시찰합니다.</p>
+        <div class="btn-group">
+          <button id="btn-toggle-fly" class="action-btn fly-btn">
+            ✈️ 하늘 날기 (비행 모드 켜기)
+          </button>
+        </div>
+        <div style="font-size: 11px; color: var(--text-sub); display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px;">
+          <span>💡 <strong>조작법:</strong></span>
+          <span><kbd>Space</kbd> 상승</span>
+          <span><kbd>Shift</kbd> 하강</span>
+          <span><kbd>W,A,S,D</kbd> 비행</span>
+          <span><kbd>F</kbd> 토글</span>
+        </div>
+      </section>
+
+      <!-- 5. 자원 획득 & 테스트 편의 -->
+      <section class="dev-section">
+        <div class="section-title">
+          <span>📦 자원 편의 도구</span>
+        </div>
+        <div class="btn-group">
+          <button id="btn-give-resources" class="action-btn secondary">💎 모든 건축 블록 +64개 지급</button>
+          <button id="btn-reset-tools" class="action-btn secondary">🔧 도구 내구도 풀 충전</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 조작 안내 힌트 -->
+  <aside id="controls-hint">
+    <div class="hint-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 / <kbd>Space</kbd> 점프</div>
+    <div class="hint-item"><kbd>좌클릭</kbd> 채굴 / <kbd>우클릭</kbd> 블록 설치</div>
+    <div class="hint-item"><kbd>1</kbd>~<kbd>9</kbd> 블록 선택 / <kbd>휠</kbd> 슬롯 전환</div>
+    <div class="hint-item return-key-item"><kbd>[</kbd> 평지마을 귀환 / <kbd>9</kbd> 귀환석🧭</div>
+    <div class="hint-item"><kbd>E</kbd> 또는 <kbd>C</kbd> 조합대 (제작창)</div>
+    <div class="hint-item fly-hint-item"><kbd>F</kbd> 비행(플라이) 모드</div>
+    <div class="hint-item"><kbd>ESC</kbd> 마우스 커서 풀기 (상단 메뉴 클릭)</div>
+    <div class="hint-item"><kbd>`</kbd> 또는 <kbd>F2</kbd> 개발자 도구 토글</div>
+  </aside>
+
+  <!-- 3x3 마인크래프트 정통 조합대 모달 -->
+  <div id="crafting-modal" class="modal-backdrop hidden">
+    <div class="crafting-card">
+      <div class="crafting-header">
+        <div class="crafting-title">
+          <span class="crafting-icon">🪑</span>
+          <h3>조합대 (Crafting Table)</h3>
+        </div>
+        <button id="btn-close-crafting" class="close-btn" title="닫기 (E/ESC)">✕</button>
+      </div>
+
+      <div class="crafting-body">
+        <!-- 좌측: 레시피북 (간편 제작 목록) -->
+        <div class="recipe-book-panel">
+          <div class="recipe-book-header">
+            <span>📖 제작 레시피북</span>
+          </div>
+          <div id="recipe-list" class="recipe-list">
+            <!-- JS 동적 생성 -->
+          </div>
+        </div>
+
+        <!-- 우측: 3x3 마인크래프트 조합대 작업 영역 -->
+        <div class="crafting-work-area">
+          <div class="crafting-grid-wrapper">
+            <span class="crafting-subtitle">3×3 조합 그리드</span>
+            <div id="crafting-grid" class="crafting-grid">
+              <!-- 9개 슬롯 -->
+            </div>
+          </div>
+
+          <div class="crafting-arrow">➔</div>
+
+          <div class="crafting-result-wrapper">
+            <span class="crafting-subtitle">완성품</span>
+            <div id="crafting-result-slot" class="crafting-result-slot" title="클릭하여 제작">
+              <!-- 결과 아이콘 -->
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="crafting-footer">
+        <span class="crafting-tip">💡 <kbd>E</kbd> 또는 <kbd>C</kbd> 키로 언제든 조합창을 열고 닫을 수 있습니다. 완성품을 클릭하면 제작됩니다!</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 게임 시작 / 방 생성 및 참가 모달 오버레이 -->
+  <div id="click-to-play" class="modal-backdrop">
+    <div class="modal-card auth-card">
+      <div class="auth-header">
+        <h1 class="game-title">🌲 우리 마을 꾸미기</h1>
+        <p class="game-subtitle">친구들과 함께 10x10 대지에 집을 짓는 실시간 교실 복셀 게임</p>
+      </div>
+
+      <!-- 역할 선택 탭 -->
+      <div class="auth-tabs">
+        <button id="tab-teacher" class="auth-tab active">
+          <span class="auth-tab-icon">👑</span>
+          <span>선생님 (방 만들기)</span>
+        </button>
+        <button id="tab-student" class="auth-tab">
+          <span class="auth-tab-icon">🧑‍🎓</span>
+          <span>학생 (방 참가하기)</span>
+        </button>
+      </div>
+
+      <!-- 1. 선생님 전용 폼 -->
+      <div id="panel-teacher" class="auth-panel">
+        <div id="teacher-form-section">
+          <div class="form-group">
+            <label for="teacher-name-input">선생님 이름 / 호칭</label>
+            <input type="text" id="teacher-name-input" class="auth-input" placeholder="예: 김선생님" maxlength="12" value="김선생님" />
+          </div>
+          <div class="form-group">
+            <label for="room-title-input">수업 / 마을 이름</label>
+            <input type="text" id="room-title-input" class="auth-input" placeholder="예: 3학년 1반 마을" maxlength="20" value="3학년 1반 마을" />
+          </div>
+          <p class="auth-info-note">💡 방을 생성하면 <strong>5자리 고유 코드</strong>가 발급되며, 최대 16명의 학생이 입장할 수 있습니다.</p>
+          <button id="btn-create-room" class="primary-btn full-btn">🚀 5자리 코드로 교실 방 만들기</button>
+        </div>
+
+        <!-- 방 생성 완료 시 코드 안내 화면 -->
+        <div id="teacher-code-section" class="hidden">
+          <div class="code-display-box">
+            <span class="code-label">📢 학생들에게 알려줄 5자리 방 코드</span>
+            <div class="big-room-code" id="display-created-code">-----</div>
+            <button id="btn-copy-code" class="copy-btn">📋 코드 복사하기</button>
+          </div>
+          <p class="auth-info-note success">✨ 방이 성공적으로 개설되었습니다! 학생들이 이 코드를 입력하고 들어오면 자동으로 자리가 배정됩니다.</p>
+          <button id="btn-enter-as-teacher" class="primary-btn full-btn">마을 관리자로 입장하기</button>
+        </div>
+      </div>
+
+      <!-- 2. 학생 전용 폼 -->
+      <div id="panel-student" class="auth-panel hidden">
+        <div class="form-group">
+          <label for="student-room-code">5자리 방 코드</label>
+          <input type="text" id="student-room-code" class="auth-input code-input" placeholder="5자리 숫자 (예: 48291)" maxlength="5" />
+        </div>
+        <div class="form-group">
+          <label for="student-name-input">학생 이름 / 닉네임</label>
+          <input type="text" id="student-name-input" class="auth-input" placeholder="예: 홍길동" maxlength="10" />
+        </div>
+        <p class="auth-info-note">💡 선생님이 알려주신 5자리 코드를 입력하세요. 1인당 10x10 대지가 자동 배정됩니다. (최대 16명 정원)</p>
+        <button id="btn-join-room" class="primary-btn full-btn">🎒 우리 반 마을로 참가하기</button>
+      </div>
+
+      <!-- 에러 메시지 팝업 -->
+      <div id="auth-error-msg" class="auth-error hidden"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
