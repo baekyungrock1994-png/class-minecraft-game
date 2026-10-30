@@ -56,6 +56,14 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface JoinRequestData {
+  uid: string;
+  name: string;
+  requestedAt: number;
+  status: 'pending' | 'approved' | 'rejected';
+  plotId?: number;
+}
+
 export class NetworkManager {
   private app: FirebaseApp;
   private auth: Auth;
@@ -89,6 +97,10 @@ export class NetworkManager {
   public onPlayerListUpdate?: (players: PlayerNetworkData[]) => void;
   public onChatMessage?: (chat: ChatMessage) => void;
   public onMyNameChanged?: (newName: string) => void;
+  public onPendingRequestsUpdate?: (requests: JoinRequestData[]) => void;
+  public onJoinApproved?: (plotId: number) => void;
+  public onJoinRejected?: () => void;
+  public onKicked?: () => void;
   public joinTimestamp: number = Date.now();
 
   constructor(scene: THREE.Scene) {
@@ -167,9 +179,9 @@ export class NetworkManager {
   }
 
   /**
-   * 2. [학생용] 5자리 코드로 방 참가 (최대 16명 정원 검사 및 1~16번 대지 자동 배정)
+   * 2. [학생용] 5자리 코드로 교사 승인 요청 (대기실 진입)
    */
-  public async joinRoom(roomCode: string, studentName: string): Promise<{ success: boolean; plotId?: number; message?: string }> {
+  public async requestJoinRoom(roomCode: string, studentName: string): Promise<{ success: boolean; message?: string }> {
     const code = roomCode.trim();
     if (!/^\d{5}$/.test(code)) {
       return { success: false, message: '방 코드는 5자리 숫자여야 합니다.' };
@@ -182,28 +194,102 @@ export class NetworkManager {
       return { success: false, message: `코드 [${code}]에 해당하는 교실 방을 찾을 수 없습니다.` };
     }
 
-    // 현재 플레이어 목록 가져와서 인원 수 & 사용 중인 대지 번호 확인
+    // 1. 강제 추방된 계정인지 검사
+    const kickedSnap = await get(ref(this.db, `rooms/${code}/kicked/${user.uid}`));
+    if (kickedSnap.exists() && kickedSnap.val() === true) {
+      return { success: false, message: '선생님에 의해 이 교실 마을에서 추방된 계정입니다.' };
+    }
+
+    // 2. 정원 검사 (16명)
     const playersSnap = await get(ref(this.db, `rooms/${code}/players`));
-    const occupiedPlots = new Set<number>();
     let studentCount = 0;
 
     if (playersSnap.exists()) {
       const players = playersSnap.val();
       for (const uid in players) {
-        const p = players[uid];
-        if (p.role === 'student') {
+        if (players[uid].role === 'student') {
           studentCount++;
-          if (p.plotId) occupiedPlots.add(p.plotId);
         }
       }
     }
 
-    // 16명 정원 제한
     if (studentCount >= 16) {
       return { success: false, message: '해당 교실 마을은 정원(16명)이 모두 찼습니다!' };
     }
 
-    // 비어있는 대지 번호(1 ~ 16) 중 가장 작은 번호 배정
+    this.roomCode = code;
+    this.role = 'student';
+    this.playerName = studentName.trim() || `학생_${Math.floor(Math.random() * 900) + 100}`;
+    this.isHost = false;
+
+    // 3. 교사 승인 대기열(joinRequests)에 등록
+    const reqRef = ref(this.db, `rooms/${code}/joinRequests/${user.uid}`);
+    const reqData: JoinRequestData = {
+      uid: user.uid,
+      name: this.playerName,
+      requestedAt: Date.now(),
+      status: 'pending'
+    };
+    await set(reqRef, reqData);
+
+    // 탭을 닫거나 나갈 시 요청 자동 제거
+    onDisconnect(reqRef).remove();
+
+    // 4. 교사의 승인/거절 여부 실시간 구독
+    const unsubscribe = onValue(reqRef, async (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.val() as JoinRequestData;
+
+      if (data.status === 'approved') {
+        unsubscribe();
+        const assignedPlot = data.plotId || 1;
+        this.myPlotId = assignedPlot;
+
+        // 승인 완료: 실제 플레이어로 DB 등록 및 동기화 시작
+        await this.registerPlayerInDb(assignedPlot);
+        this.setupListeners();
+
+        if (this.onJoinApproved) {
+          this.onJoinApproved(assignedPlot);
+        }
+      } else if (data.status === 'rejected') {
+        unsubscribe();
+        await remove(reqRef);
+        if (this.onJoinRejected) {
+          this.onJoinRejected();
+        }
+      }
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * [학생용] 승인 대기 취소
+   */
+  public async cancelJoinRequest(): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+    const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${this.currentUser.uid}`);
+    await remove(reqRef);
+  }
+
+  /**
+   * [교사용] 학생의 마을 입장 승인 및 대지 배정
+   */
+  public async approveStudent(applicantUid: string): Promise<number> {
+    if (!this.roomCode || this.role !== 'teacher') return 1;
+
+    // 현재 사용 중인 대지 번호 확인
+    const playersSnap = await get(ref(this.db, `rooms/${this.roomCode}/players`));
+    const occupiedPlots = new Set<number>();
+    if (playersSnap.exists()) {
+      const players = playersSnap.val();
+      for (const uid in players) {
+        if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
+      }
+    }
+
+    // 1~16번 중 가장 빠른 빈 대지 배정
     let assignedPlot = 1;
     for (let i = 1; i <= 16; i++) {
       if (!occupiedPlots.has(i)) {
@@ -212,17 +298,50 @@ export class NetworkManager {
       }
     }
 
-    this.roomCode = code;
-    this.role = 'student';
-    this.playerName = studentName.trim() || `학생_${Math.floor(Math.random() * 900) + 100}`;
-    this.myPlotId = assignedPlot;
-    this.isHost = false;
+    const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`);
+    await update(reqRef, {
+      status: 'approved',
+      plotId: assignedPlot
+    });
 
-    // 플레이어 등록
-    await this.registerPlayerInDb(assignedPlot);
-    this.setupListeners();
+    return assignedPlot;
+  }
 
-    return { success: true, plotId: assignedPlot };
+  /**
+   * [교사용] 학생의 마을 입장 거절
+   */
+  public async rejectStudent(applicantUid: string): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+    const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`);
+    await update(reqRef, {
+      status: 'rejected'
+    });
+  }
+
+  /**
+   * [교사용] 특정 학생을 교실 마을에서 강제 추방 (즉시 퇴장 및 재입장 차단)
+   */
+  public async kickPlayer(targetUid: string): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+
+    // 1) 추방 목록 등록 (재입장 차단)
+    const kickedRef = ref(this.db, `rooms/${this.roomCode}/kicked/${targetUid}`);
+    await set(kickedRef, true);
+
+    // 2) 플레이어 DB에서 즉시 제거
+    const playerRef = ref(this.db, `rooms/${this.roomCode}/players/${targetUid}`);
+    await remove(playerRef);
+
+    // 3) 대기열에서도 제거
+    const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${targetUid}`);
+    await remove(reqRef);
+  }
+
+  /**
+   * 하위 호환용 즉시 입장 (필요 시)
+   */
+  public async joinRoom(roomCode: string, studentName: string): Promise<{ success: boolean; plotId?: number; message?: string }> {
+    return this.requestJoinRoom(roomCode, studentName);
   }
 
   /**
@@ -340,6 +459,37 @@ export class NetworkManager {
         this.showAvatarSpeechBubble(val.senderUid, val.message);
       }
     });
+
+    // 6. [교사용] 학생 입장 승인 대기열 실시간 감지
+    if (this.role === 'teacher') {
+      const joinReqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests`);
+      onValue(joinReqRef, (snap) => {
+        const pendingList: JoinRequestData[] = [];
+        if (snap.exists()) {
+          const val = snap.val();
+          for (const uid in val) {
+            if (val[uid].status === 'pending') {
+              pendingList.push(val[uid]);
+            }
+          }
+        }
+        if (this.onPendingRequestsUpdate) {
+          this.onPendingRequestsUpdate(pendingList);
+        }
+      });
+    }
+
+    // 7. [모든 플레이어] 교사에 의한 강제 추방 실시간 감지
+    if (this.currentUser) {
+      const kickedRef = ref(this.db, `rooms/${this.roomCode}/kicked/${this.currentUser.uid}`);
+      onValue(kickedRef, (snap) => {
+        if (snap.exists() && snap.val() === true) {
+          if (this.onKicked) {
+            this.onKicked();
+          }
+        }
+      });
+    }
   }
 
   private handleIncomingBlockDelta(snap: DataSnapshot): void {

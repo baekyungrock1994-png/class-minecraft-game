@@ -4,7 +4,7 @@ import { PlayerController, BlockInteractEvent } from './game/PlayerController.ts
 import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
 import { BlockType, ToolType, WorldType, WORLD_HEIGHT } from './core/Constants.ts';
-import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage } from './core/NetworkManager.ts';
+import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData } from './core/NetworkManager.ts';
 
 class GameApp {
   private scene: THREE.Scene;
@@ -63,6 +63,18 @@ class GameApp {
   private playerRosterContainer: HTMLElement;
   private currentPlayers: PlayerNetworkData[] = [];
 
+  // 교사 승인 및 대기열 요소
+  private pendingRequests: JoinRequestData[] = [];
+  private joinRequestToast: HTMLElement;
+  private joinToastMsg: HTMLElement;
+  private btnToastApprove: HTMLElement;
+  private btnToastReject: HTMLElement;
+  private pendingRequestsSection: HTMLElement;
+  private pendingCountBadge: HTMLElement;
+  private pendingRequestsContainer: HTMLElement;
+  private kickedModal: HTMLElement;
+  private btnKickedConfirm: HTMLElement;
+
   // 칭찬 & 긍정 언어 채팅 모달 및 로그 요소
   private quickChatModal: HTMLElement;
   private btnOpenChat: HTMLElement;
@@ -109,6 +121,20 @@ class GameApp {
     this.playerListRoomCode = document.getElementById('player-list-room-code')!;
     this.playerListAdminNotice = document.getElementById('player-list-admin-notice')!;
     this.playerRosterContainer = document.getElementById('player-roster-container')!;
+
+    // 교사 승인 및 대기열 / 추방 요소
+    this.joinRequestToast = document.getElementById('join-request-toast')!;
+    this.joinToastMsg = document.getElementById('join-toast-msg')!;
+    this.btnToastApprove = document.getElementById('btn-toast-approve')!;
+    this.btnToastReject = document.getElementById('btn-toast-reject')!;
+    this.pendingRequestsSection = document.getElementById('pending-requests-section')!;
+    this.pendingCountBadge = document.getElementById('pending-count-badge')!;
+    this.pendingRequestsContainer = document.getElementById('pending-requests-container')!;
+    this.kickedModal = document.getElementById('kicked-modal')!;
+    this.btnKickedConfirm = document.getElementById('btn-kicked-confirm')!;
+    this.btnKickedConfirm.addEventListener('click', () => {
+      window.location.reload();
+    });
 
     // 칭찬 소통 채팅 요소
     this.quickChatModal = document.getElementById('quick-chat-modal')!;
@@ -1055,10 +1081,64 @@ class GameApp {
     this.networkManager.onChatMessage = (chat: ChatMessage) => {
       this.displayIncomingChat(chat);
     };
+
+    // 7. [교사용] 학생 입장 승인 대기열 실시간 수신
+    this.networkManager.onPendingRequestsUpdate = (requests) => {
+      this.pendingRequests = requests;
+      this.updatePendingRequestsUI();
+    };
+
+    // 8. [학생용] 교사의 마을 입장 승인 수신
+    this.networkManager.onJoinApproved = (assignedPlot: number) => {
+      this.hasGameStarted = true;
+      this.startModal.classList.add('hidden');
+
+      // 학생 UI 모드 적용 (개발자 도구 버튼 완전 은닉)
+      document.body.classList.add('student-mode');
+
+      this.player.assignedPlotIndex = assignedPlot;
+      this.plotSelector.value = assignedPlot.toString();
+      this.playerDisplayEl.textContent = `${this.networkManager.playerName} (#${assignedPlot})`;
+      this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 우리 반 마을`;
+
+      this.teleportToMyPlot();
+      this.showNotification(`🎉 선생님께서 입장을 승인하셨습니다! 당신의 대지는 [#${assignedPlot}번]입니다.`, '🏡');
+      this.requestPointerLockSafely();
+    };
+
+    // 9. [학생용] 교사의 입장 거절 수신
+    this.networkManager.onJoinRejected = () => {
+      const studentWaitingSection = document.getElementById('student-waiting-section');
+      const studentFormSection = document.getElementById('student-form-section');
+      const authErrorMsg = document.getElementById('auth-error-msg');
+      const btnJoinRoom = document.getElementById('btn-join-room');
+
+      if (studentWaitingSection) studentWaitingSection.classList.add('hidden');
+      if (studentFormSection) studentFormSection.classList.remove('hidden');
+      if (btnJoinRoom) {
+        btnJoinRoom.removeAttribute('disabled');
+        btnJoinRoom.textContent = '🎒 입장 승인 신청하기';
+      }
+      if (authErrorMsg) {
+        authErrorMsg.textContent = '선생님께서 입장을 거절하셨습니다. 이름과 방 코드를 다시 확인해주세요.';
+        authErrorMsg.classList.remove('hidden');
+      }
+      this.showNotification('선생님께서 입장을 거절하셨습니다.', '❌');
+    };
+
+    // 10. [학생/참여자] 교사에 의한 강제 추방 수신
+    this.networkManager.onKicked = () => {
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+      this.player.isModalOpen = true;
+      this.hasGameStarted = false;
+      this.kickedModal.classList.remove('hidden');
+    };
   }
 
   /**
-   * 로그인 및 방 생성/참가 모달 이벤트 (2단계 구조: 1단계 역할 선택 -> 2단계 정보 입력)
+   * 로그인 및 방 생성/참가 모달 이벤트 (2단계 구조: 1단계 역할 선택 -> 2단계 정보 입력 및 승인 대기)
    */
   private setupAuthModal(): void {
     const authStepSelect = document.getElementById('auth-step-select')!;
@@ -1079,8 +1159,13 @@ class GameApp {
     const btnCopyCode = document.getElementById('btn-copy-code')!;
     const btnEnterAsTeacher = document.getElementById('btn-enter-as-teacher')!;
 
+    const studentFormSection = document.getElementById('student-form-section')!;
+    const studentWaitingSection = document.getElementById('student-waiting-section')!;
     const studentRoomCode = document.getElementById('student-room-code') as HTMLInputElement;
     const studentNameInput = document.getElementById('student-name-input') as HTMLInputElement;
+    const waitingStudentName = document.getElementById('waiting-student-name')!;
+    const waitingRoomCode = document.getElementById('waiting-room-code')!;
+    const btnCancelWaiting = document.getElementById('btn-cancel-waiting')!;
     const btnJoinRoom = document.getElementById('btn-join-room')!;
     const authErrorMsg = document.getElementById('auth-error-msg')!;
 
@@ -1106,6 +1191,8 @@ class GameApp {
       clearError();
       authStepSelect.classList.add('hidden');
       authStepStudent.classList.remove('hidden');
+      studentFormSection.classList.remove('hidden');
+      studentWaitingSection.classList.add('hidden');
       setTimeout(() => studentRoomCode.focus(), 50);
     });
 
@@ -1169,7 +1256,7 @@ class GameApp {
       this.requestPointerLockSafely();
     });
 
-    // 2. 학생 방 참가
+    // 2. 학생 입장 승인 신청
     btnJoinRoom.addEventListener('click', async (e) => {
       e.stopPropagation();
       clearError();
@@ -1182,38 +1269,42 @@ class GameApp {
       }
 
       btnJoinRoom.setAttribute('disabled', 'true');
-      btnJoinRoom.textContent = '방 참가 중...';
+      btnJoinRoom.textContent = '선생님 확인 중...';
 
       try {
-        const res = await this.networkManager.joinRoom(code, studentName);
+        const res = await this.networkManager.requestJoinRoom(code, studentName);
         if (!res.success) {
-          showError(res.message || '방 참가에 실패했습니다.');
+          showError(res.message || '방 참가 신청에 실패했습니다.');
           btnJoinRoom.removeAttribute('disabled');
-          btnJoinRoom.textContent = '🎒 우리 반 마을로 참가하기';
+          btnJoinRoom.textContent = '🎒 입장 승인 신청하기';
           return;
         }
 
-        this.hasGameStarted = true;
-        this.startModal.classList.add('hidden');
-
-        // 학생 UI 모드 적용 (개발자 도구 버튼 완전 은닉)
-        document.body.classList.add('student-mode');
-
-        // 배정받은 대지 적용
-        const assignedPlot = res.plotId || 1;
-        this.player.assignedPlotIndex = assignedPlot;
-        this.plotSelector.value = assignedPlot.toString();
-        this.playerDisplayEl.textContent = `나의 대지 (#${assignedPlot})`;
-        this.roomDisplayEl.textContent = `[코드: ${code}] 우리 반 마을`;
-
-        this.teleportToMyPlot();
-        this.showNotification(`교실 마을에 오신 것을 환영합니다! 당신의 대지는 [#${assignedPlot}번]입니다.`, '🏡');
-        this.requestPointerLockSafely();
+        // 신청 성공 -> 대기실 화면으로 전환
+        waitingStudentName.textContent = studentName;
+        waitingRoomCode.textContent = code;
+        studentFormSection.classList.add('hidden');
+        studentWaitingSection.classList.remove('hidden');
       } catch (err: any) {
-        showError('참가 오류: ' + (err.message || err));
+        showError('신청 오류: ' + (err.message || err));
         btnJoinRoom.removeAttribute('disabled');
-        btnJoinRoom.textContent = '🎒 우리 반 마을로 참가하기';
+        btnJoinRoom.textContent = '🎒 입장 승인 신청하기';
       }
+    });
+
+    // 3. 학생 입장 대기 취소
+    btnCancelWaiting.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await this.networkManager.cancelJoinRequest();
+      } catch (err) {
+        console.warn('cancelJoinRequest error:', err);
+      }
+      studentWaitingSection.classList.add('hidden');
+      studentFormSection.classList.remove('hidden');
+      btnJoinRoom.removeAttribute('disabled');
+      btnJoinRoom.textContent = '🎒 입장 승인 신청하기';
+      clearError();
     });
   }
 
@@ -1403,9 +1494,10 @@ class GameApp {
 
     const isTeacher = this.networkManager.role === 'teacher';
     this.playerListAdminNotice.textContent = isTeacher
-      ? '👑 관리자 모드: 부적절한 닉네임을 가진 학생의 닉네임을 직접 수정할 수 있습니다.'
+      ? '👑 교사 관리자 모드: 학생 닉네임 강제 수정 및 외부인/문제 학생을 즉시 강제 추방할 수 있습니다.'
       : '👥 현재 우리 반 마을에 참여 중인 친구들의 명단입니다.';
 
+    this.renderPendingRequests();
     this.renderPlayerRoster();
   }
 
@@ -1416,7 +1508,114 @@ class GameApp {
   }
 
   /**
-   * 참여자 명단 렌더링 및 닉네임 강제 변경 버튼 제공
+   * [교사용] 학생 입장 대기열 UI 및 토스트 갱신
+   */
+  private updatePendingRequestsUI(): void {
+    if (this.networkManager.role !== 'teacher') return;
+
+    const count = this.pendingRequests.length;
+    this.pendingCountBadge.textContent = `${count}명`;
+
+    // 1. 플로팅 토스트 배너 갱신
+    if (count > 0) {
+      const latest = this.pendingRequests[count - 1];
+      this.joinToastMsg.innerHTML = `<strong>${latest.name}</strong> 학생이 입장을 기다리고 있습니다.${count > 1 ? ` (외 ${count - 1}명)` : ''}`;
+
+      this.btnToastApprove.onclick = async (e) => {
+        e.stopPropagation();
+        this.btnToastApprove.setAttribute('disabled', 'true');
+        await this.networkManager.approveStudent(latest.uid);
+        this.btnToastApprove.removeAttribute('disabled');
+        this.showNotification(`[${latest.name}] 학생의 입장을 승인했습니다!`, '✅');
+      };
+
+      this.btnToastReject.onclick = async (e) => {
+        e.stopPropagation();
+        this.btnToastReject.setAttribute('disabled', 'true');
+        await this.networkManager.rejectStudent(latest.uid);
+        this.btnToastReject.removeAttribute('disabled');
+        this.showNotification(`[${latest.name}] 학생의 입장을 거절했습니다.`, '❌');
+      };
+
+      this.joinRequestToast.classList.remove('hidden');
+    } else {
+      this.joinRequestToast.classList.add('hidden');
+    }
+
+    // 2. 명단 모달 내 대기자 목록 갱신
+    if (!this.playerListModal.classList.contains('hidden')) {
+      this.renderPendingRequests();
+    }
+  }
+
+  /**
+   * [교사용] 참여자 명단 모달 내 대기자 리스트 렌더링
+   */
+  private renderPendingRequests(): void {
+    if (this.networkManager.role !== 'teacher') {
+      this.pendingRequestsSection.classList.add('hidden');
+      return;
+    }
+
+    if (this.pendingRequests.length === 0) {
+      this.pendingRequestsSection.classList.add('hidden');
+      this.pendingRequestsContainer.innerHTML = '';
+      return;
+    }
+
+    this.pendingRequestsSection.classList.remove('hidden');
+    this.pendingRequestsContainer.innerHTML = '';
+
+    this.pendingRequests.forEach((req) => {
+      const item = document.createElement('div');
+      item.className = 'pending-item-card';
+
+      const left = document.createElement('div');
+      left.className = 'pending-item-left';
+      left.innerHTML = `
+        <span class="pending-user-icon">🧑‍🎓</span>
+        <div class="pending-user-info">
+          <span class="pending-user-name">${req.name}</span>
+          <span class="pending-user-time">${new Date(req.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 입장 신청</span>
+        </div>
+      `;
+
+      const right = document.createElement('div');
+      right.className = 'pending-item-actions';
+
+      const approveBtn = document.createElement('button');
+      approveBtn.className = 'pending-action-btn approve';
+      approveBtn.textContent = '✅ 승인';
+      approveBtn.title = '이 학생의 마을 입장을 승인하고 대지를 배정합니다';
+      approveBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        approveBtn.setAttribute('disabled', 'true');
+        await this.networkManager.approveStudent(req.uid);
+        this.showNotification(`[${req.name}] 학생의 입장을 승인했습니다!`, '✅');
+      });
+
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'pending-action-btn reject';
+      rejectBtn.textContent = '❌ 거절';
+      rejectBtn.title = '이 학생의 마을 입장을 거절합니다';
+      rejectBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        rejectBtn.setAttribute('disabled', 'true');
+        await this.networkManager.rejectStudent(req.uid);
+        this.showNotification(`[${req.name}] 학생의 입장을 거절했습니다.`, '❌');
+      });
+
+      right.appendChild(approveBtn);
+      right.appendChild(rejectBtn);
+
+      item.appendChild(left);
+      item.appendChild(right);
+      this.pendingRequestsContainer.appendChild(item);
+    });
+  }
+
+  /**
+   * 참여자 명단 렌더링 (닉네임 강제 변경 및 강제 추방 버튼 제공)
    */
   private renderPlayerRoster(): void {
     this.playerRosterContainer.innerHTML = '';
@@ -1473,11 +1672,12 @@ class GameApp {
       left.appendChild(info);
       card.appendChild(left);
 
-      // 교사(관리자)에게만 학생 닉네임 강제 변경 버튼 제공
+      // 교사(관리자)에게만 학생 닉네임 강제 변경 및 강제 추방 버튼 제공
       if (isTeacher && p.role === 'student') {
         const right = document.createElement('div');
         right.className = 'player-roster-right';
 
+        // 1. 닉네임 변경 버튼
         const renameBtn = document.createElement('button');
         renameBtn.className = 'roster-rename-btn';
         renameBtn.innerHTML = '✏️ 닉네임 변경';
@@ -1492,7 +1692,24 @@ class GameApp {
           }
         });
 
+        // 2. 강제 추방(Kick) 버튼
+        const kickBtn = document.createElement('button');
+        kickBtn.className = 'roster-kick-btn';
+        kickBtn.innerHTML = '🚫 추방';
+        kickBtn.title = '이 학생(또는 외부인)을 교실 마을에서 강제 추방합니다';
+        kickBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const confirmed = confirm(
+            `[${p.name}] 학생(또는 외부인)을 교실 마을에서 강제 추방하시겠습니까?\n\n※ 추방된 사용자는 즉시 퇴장 처리되며, 다시 방에 참가할 수 없습니다.`
+          );
+          if (confirmed) {
+            await this.networkManager.kickPlayer(p.uid);
+            this.showNotification(`[${p.name}] 학생을 교실 마을에서 강제 추방했습니다.`, '🚫');
+          }
+        });
+
         right.appendChild(renameBtn);
+        right.appendChild(kickBtn);
         card.appendChild(right);
       }
 

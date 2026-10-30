@@ -264,7 +264,22 @@
     <div class="hint-item"><kbd>ESC</kbd> 마우스 풀기 (상단 명단/메뉴 클릭)</div>
   </aside>
 
-  <!-- 교실 마을 참가자 명단 및 닉네임 관리 모달 -->
+  <!-- 교사용 실시간 입장 승인 요청 플로팅 배너 -->
+  <div id="join-request-toast" class="join-request-toast hidden">
+    <div class="toast-content">
+      <div class="toast-icon">🔔</div>
+      <div class="toast-text-box">
+        <div class="toast-title">마을 입장 승인 요청</div>
+        <div class="toast-message" id="join-toast-msg"><strong>홍길동</strong> 학생이 입장을 기다리고 있습니다.</div>
+      </div>
+    </div>
+    <div class="toast-actions">
+      <button id="btn-toast-approve" class="toast-btn approve-btn" type="button">✅ 승인</button>
+      <button id="btn-toast-reject" class="toast-btn reject-btn" type="button">❌ 거절</button>
+    </div>
+  </div>
+
+  <!-- 교실 마을 참가자 명단 및 닉네임/추방 관리 모달 -->
   <div id="player-list-modal" class="modal-backdrop hidden">
     <div class="modal-card player-list-card">
       <div class="modal-header-row">
@@ -280,7 +295,22 @@
 
       <div class="player-list-info-bar">
         <span class="room-code-tag">방 코드: <strong id="player-list-room-code">-----</strong></span>
-        <span class="admin-notice-tag" id="player-list-admin-notice">👑 관리자는 학생의 닉네임을 변경할 수 있습니다.</span>
+        <span class="admin-notice-tag" id="player-list-admin-notice">👑 교사는 학생 닉네임 변경 및 외부인/문제 학생을 추방할 수 있습니다.</span>
+      </div>
+
+      <!-- 교사용: 입장 승인 대기자 목록 -->
+      <div id="pending-requests-section" class="pending-section hidden">
+        <div class="pending-section-header">
+          <span class="pending-badge">⏳ 입장 승인 대기 명단</span>
+          <span id="pending-count-badge" class="count-badge">0명</span>
+        </div>
+        <div id="pending-requests-container" class="pending-list">
+          <!-- JS 동적 생성 -->
+        </div>
+      </div>
+
+      <div class="roster-section-title">
+        <span>🏡 마을 참여자 명단</span>
       </div>
 
       <div id="player-roster-container" class="player-roster-container">
@@ -289,6 +319,23 @@
 
       <div class="modal-footer-row">
         <button id="btn-close-player-list-bottom" class="action-btn secondary full-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 강제 추방 알림 모달 -->
+  <div id="kicked-modal" class="modal-backdrop hidden" style="z-index: 99999;">
+    <div class="modal-card kicked-card">
+      <div class="kicked-icon">🚫</div>
+      <h2 class="kicked-title">교실 마을에서 퇴장되었습니다</h2>
+      <p class="kicked-desc">
+        선생님(관리자)에 의해 교실 마을에서 강제 추방 조치되었습니다.<br>
+        외부인이거나 교실 규칙을 준수하지 않은 경우 접근이 제한됩니다.
+      </p>
+      <div class="kicked-actions">
+        <button id="btn-kicked-confirm" class="primary-btn danger full-btn" type="button">
+          처음 화면으로 돌아가기
+        </button>
       </div>
     </div>
   </div>
@@ -471,16 +518,17 @@
         </div>
       </div>
 
-      <!-- 2단계: 학생 전용 폼 -->
+      <!-- 2단계: 학생 전용 폼 및 승인 대기실 -->
       <div id="auth-step-student" class="auth-step hidden">
         <div class="auth-step-header">
           <button id="btn-back-student" class="back-step-btn" type="button" title="역할 선택으로 돌아가기">
             <span class="back-icon">←</span> 역할 다시 선택
           </button>
-          <div class="step-role-badge student">🧑‍🎓 학생 (방 참가하기)</div>
+          <div class="step-role-badge student">🧑‍🎓 학생 (마을 참가 신청)</div>
         </div>
 
-        <div class="auth-form-content">
+        <!-- 1) 정보 입력 폼 -->
+        <div id="student-form-section" class="auth-form-content">
           <div class="form-group">
             <label for="student-room-code">5자리 방 코드</label>
             <input type="text" id="student-room-code" class="auth-input code-input" placeholder="예: 48291" maxlength="5" autocomplete="off" />
@@ -489,8 +537,34 @@
             <label for="student-name-input">내 이름 / 닉네임</label>
             <input type="text" id="student-name-input" class="auth-input" placeholder="예: 홍길동" maxlength="10" />
           </div>
-          <p class="auth-info-note">💡 선생님이 알려주신 5자리 코드를 입력하세요. 1인당 10x10 나만의 대지가 자동 배정됩니다.</p>
-          <button id="btn-join-room" class="primary-btn full-btn">🎒 우리 반 마을로 참가하기</button>
+          <p class="auth-info-note">💡 선생님이 알려주신 5자리 코드를 입력하면 <strong>선생님의 승인 후</strong> 마을에 입장하게 됩니다.</p>
+          <button id="btn-join-room" class="primary-btn full-btn">🎒 입장 승인 신청하기</button>
+        </div>
+
+        <!-- 2) 교사 승인 대기실 화면 -->
+        <div id="student-waiting-section" class="auth-form-content hidden">
+          <div class="waiting-card">
+            <div class="waiting-spinner-ring">
+              <div class="spinner-core">⏳</div>
+            </div>
+            <h3 class="waiting-title">선생님의 입장을 기다리고 있어요!</h3>
+            <p class="waiting-desc">선생님께서 승인해주시면 자동으로 나만의 대지로 이동합니다.</p>
+            
+            <div class="waiting-info-box">
+              <div class="waiting-info-item">
+                <span class="info-label">신청 닉네임</span>
+                <span class="info-val" id="waiting-student-name">-</span>
+              </div>
+              <div class="waiting-info-item">
+                <span class="info-label">방 코드</span>
+                <span class="info-val highlight" id="waiting-room-code">-</span>
+              </div>
+            </div>
+
+            <button id="btn-cancel-waiting" class="action-btn secondary full-btn" type="button">
+              대기 취소하고 다시 작성하기
+            </button>
+          </div>
         </div>
       </div>
 
