@@ -20,6 +20,11 @@
   user-select: none;
 }
 
+/* 범용 숨김 유틸리티 */
+.hidden {
+  display: none !important;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -1331,26 +1336,37 @@ kbd {
    교사/학생 로그인 및 5자리 방 생성 모달 스타일
    ========================================================= */
 .auth-card {
-  max-width: 520px;
+  max-width: 480px;
   width: 90%;
-  padding: 32px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px 30px;
   border-radius: 20px;
-  background: rgba(15, 23, 42, 0.94);
+  background: rgba(15, 23, 42, 0.95);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   text-align: center;
+  box-sizing: border-box;
+}
+
+.auth-card::-webkit-scrollbar {
+  width: 6px;
+}
+.auth-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }
 
 .auth-header {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .auth-header .game-title {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 800;
   color: #f8fafc;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
@@ -1360,30 +1376,12 @@ kbd {
   line-height: 1.4;
 }
 
-/* 역할 선택 안내 텍스트 */
-.role-selection-prompt {
-  margin: 18px 0 16px;
-  text-align: center;
-}
-
-.role-selection-prompt .prompt-text {
-  display: inline-block;
-  font-size: 13px;
-  font-weight: 700;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.1);
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  letter-spacing: -0.2px;
-}
-
 /* 1단계: 역할 선택 카드 컨테이너 */
 .role-choice-container {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .role-choice-card {
@@ -1515,7 +1513,12 @@ kbd {
 
 /* 2단계: 단계 헤더 & 뒤로 가기 버튼 */
 .auth-step {
+  width: 100%;
   animation: authStepFadeIn 0.22s ease-out;
+}
+
+.auth-step.hidden {
+  display: none !important;
 }
 
 @keyframes authStepFadeIn {
