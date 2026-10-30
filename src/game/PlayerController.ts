@@ -54,6 +54,10 @@ export class PlayerController {
     Space: false,
     ShiftLeft: false,
     ShiftRight: false,
+    ArrowUp: false,
+    ArrowDown: false,
+    ArrowLeft: false,
+    ArrowRight: false,
   };
 
   private world: VoxelWorld;
@@ -152,14 +156,35 @@ export class PlayerController {
 
   private setupEventListeners(): void {
     window.addEventListener('keydown', (e) => {
-      // 텍스트 입력 중이 아닐 때 Space 키 기본 동작(포커스된 버튼 클릭 / 스크롤) 원천 차단 및 포커스 해제
-      if (e.code === 'Space') {
-        const targetTag = (e.target as HTMLElement)?.tagName;
-        if (targetTag !== 'INPUT' && targetTag !== 'TEXTAREA') {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      const isInputActive = targetTag === 'INPUT' || targetTag === 'TEXTAREA';
+
+      // 텍스트 입력 중이 아닐 때 Space 키 기본 동작(스크롤 / 버튼 클릭) 원천 차단
+      if (e.code === 'Space' && !isInputActive) {
+        e.preventDefault();
+        if (document.activeElement && typeof (document.activeElement as HTMLElement).blur === 'function') {
+          (document.activeElement as HTMLElement).blur();
+        }
+      }
+
+      // [마우스 대체 키보드 조작]: 마우스가 없는 학생을 위해 ,(쉼표)는 좌클릭(채굴), /(슬래시)는 우클릭(설치)
+      if (!isInputActive && !this.isModalOpen) {
+        if (e.code === 'Comma') {
           e.preventDefault();
-          if (document.activeElement && typeof (document.activeElement as HTMLElement).blur === 'function') {
-            (document.activeElement as HTMLElement).blur();
+          this.isMining = true;
+          return;
+        }
+        if (e.code === 'Slash') {
+          e.preventDefault();
+          if (this.onUseItem && this.onUseItem()) {
+            return;
           }
+          this.handlePlaceBlock();
+          return;
+        }
+        // 방향키 조작 시 브라우저 스크롤 방지
+        if (e.code.startsWith('Arrow')) {
+          e.preventDefault();
         }
       }
 
@@ -169,6 +194,12 @@ export class PlayerController {
     });
 
     window.addEventListener('keyup', (e) => {
+      // 마우스 대체 키 뗌 감지
+      if (e.code === 'Comma') {
+        this.isMining = false;
+        this.resetMiningProgress();
+      }
+
       if (this.keys.hasOwnProperty(e.code)) {
         this.keys[e.code] = false;
       }
@@ -227,17 +258,37 @@ export class PlayerController {
       this.keys.Space = false;
       this.keys.ShiftLeft = false;
       this.keys.ShiftRight = false;
+      this.keys.ArrowUp = false;
+      this.keys.ArrowDown = false;
+      this.keys.ArrowLeft = false;
+      this.keys.ArrowRight = false;
       this.velocity.set(0, 0, 0);
     }
   }
 
   public update(delta: number): void {
     // 모달창(조합대 등)이 열려있지 않은 동안에는 이동 물리와 생존 로직을 항시 정상 수행
-    // 포인터 락이 일시적으로 전환 중이더라도 조작이 얼어붙는 현상 원천 차단
     if (!this.isModalOpen) {
+      // [마우스 대체 조작]: 방향키로 카메라 시점 회전 (마우스 없는 학생용)
+      const rotSpeed = 2.4;
+      if (this.keys.ArrowLeft) {
+        this.yaw += rotSpeed * delta;
+      }
+      if (this.keys.ArrowRight) {
+        this.yaw -= rotSpeed * delta;
+      }
+      if (this.keys.ArrowUp) {
+        this.pitch += rotSpeed * delta;
+        this.pitch = Math.min(Math.PI / 2 - 0.01, this.pitch);
+      }
+      if (this.keys.ArrowDown) {
+        this.pitch -= rotSpeed * delta;
+        this.pitch = Math.max(-Math.PI / 2 + 0.01, this.pitch);
+      }
+
       this.updateMovement(delta);
       this.updateSurvival(delta);
-      if (this.isLocked) {
+      if (this.isMining) {
         this.updateMining(delta);
       }
     }

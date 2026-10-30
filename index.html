@@ -31,10 +31,10 @@
     <!-- 상단 상태바 & 월드 텔레포트 탭 -->
     <header id="top-bar">
       <div class="left-nav">
-        <div class="village-badge">
-          <span class="village-icon">🏡</span>
-          <span id="room-display">우리 반 마을</span>
-        </div>
+        <button class="village-badge clickable-badge" id="btn-player-list" tabindex="-1" title="클릭하여 참여자 명단 및 닉네임 관리 (ESC로 마우스 해제 후 클릭)">
+          <span class="village-icon">👥</span>
+          <span id="room-display">우리 반 마을 (1명)</span>
+        </button>
 
         <!-- 월드 텔레포트 스위처 -->
         <div class="world-switcher" role="tablist">
@@ -51,6 +51,9 @@
       </div>
 
       <div class="stats-pills">
+        <button id="btn-open-chat" class="chat-toggle-btn" tabindex="-1" title="칭찬/소통 채팅창 열기 (단축키: T)">
+          💬 칭찬 소통 (T)
+        </button>
         <div class="pill eco-pill" id="current-zone-pill" title="현재 위치 구역">
           <span class="pill-icon">📍</span>
           <span id="current-zone-label">마을 평지</span>
@@ -86,6 +89,11 @@
     <div id="mouse-mode-hint" class="mouse-mode-hint hidden">
       <span class="mouse-icon">🖱️</span>
       <span><strong>마우스 자유 모드</strong> (3D 화면을 클릭하면 1인칭 조작으로 복귀합니다)</span>
+    </div>
+
+    <!-- 하단 좌측: 실시간 칭찬 소통 채팅 로그 -->
+    <div id="chat-overlay" class="chat-overlay">
+      <div id="chat-messages-container" class="chat-messages-container"></div>
     </div>
 
     <!-- 하단 생존 게이지 & 핫바 -->
@@ -248,14 +256,94 @@
   <!-- 조작 안내 힌트 -->
   <aside id="controls-hint">
     <div class="hint-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 / <kbd>Space</kbd> 점프</div>
-    <div class="hint-item"><kbd>좌클릭</kbd> 채굴 / <kbd>우클릭</kbd> 블록 설치</div>
-    <div class="hint-item"><kbd>1</kbd>~<kbd>9</kbd> 블록 선택 / <kbd>휠</kbd> 슬롯 전환</div>
+    <div class="hint-item"><kbd>방향키</kbd> 시점 회전 (마우스 대체)</div>
+    <div class="hint-item"><kbd>좌클릭</kbd> 또는 <kbd>,</kbd> 채굴 / <kbd>우클릭</kbd> 또는 <kbd>/</kbd> 설치</div>
+    <div class="hint-item"><kbd>T</kbd> 칭찬 소통 채팅 / <kbd>1</kbd>~<kbd>9</kbd> 블록 선택</div>
     <div class="hint-item return-key-item"><kbd>[</kbd> 평지마을 귀환 / <kbd>9</kbd> 귀환석🧭</div>
-    <div class="hint-item"><kbd>E</kbd> 또는 <kbd>C</kbd> 조합대 (제작창)</div>
-    <div class="hint-item fly-hint-item"><kbd>F</kbd> 비행(플라이) 모드</div>
-    <div class="hint-item"><kbd>ESC</kbd> 마우스 커서 풀기 (상단 메뉴 클릭)</div>
-    <div class="hint-item"><kbd>`</kbd> 또는 <kbd>F2</kbd> 개발자 도구 토글</div>
+    <div class="hint-item"><kbd>E</kbd> 또는 <kbd>C</kbd> 조합대 / <kbd>F</kbd> 비행(선생님)</div>
+    <div class="hint-item"><kbd>ESC</kbd> 마우스 풀기 (상단 명단/메뉴 클릭)</div>
   </aside>
+
+  <!-- 교실 마을 참가자 명단 및 닉네임 관리 모달 -->
+  <div id="player-list-modal" class="modal-backdrop hidden">
+    <div class="modal-card player-list-card">
+      <div class="modal-header-row">
+        <div class="modal-title-box">
+          <span class="modal-icon">👥</span>
+          <div>
+            <h3>우리 반 마을 참가자 명단</h3>
+            <span id="player-list-subtitle" class="modal-subtitle">현재 1/16명 참여 중</span>
+          </div>
+        </div>
+        <button id="btn-close-player-list" class="close-btn" title="닫기 (ESC)">✕</button>
+      </div>
+
+      <div class="player-list-info-bar">
+        <span class="room-code-tag">방 코드: <strong id="player-list-room-code">-----</strong></span>
+        <span class="admin-notice-tag" id="player-list-admin-notice">👑 관리자는 학생의 닉네임을 변경할 수 있습니다.</span>
+      </div>
+
+      <div id="player-roster-container" class="player-roster-container">
+        <!-- JS 동적 생성 -->
+      </div>
+
+      <div class="modal-footer-row">
+        <button id="btn-close-player-list-bottom" class="action-btn secondary full-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 긍정적 언어로 된 칭찬 & 소통 채팅 모달 -->
+  <div id="quick-chat-modal" class="modal-backdrop hidden">
+    <div class="modal-card quick-chat-card">
+      <div class="modal-header-row">
+        <div class="modal-title-box">
+          <span class="modal-icon">💬</span>
+          <div>
+            <h3>칭찬 & 소통 나누기</h3>
+            <span class="modal-subtitle">친구들에게 보낼 따뜻하고 긍정적인 말을 골라보세요!</span>
+          </div>
+        </div>
+        <button id="btn-close-quick-chat" class="close-btn" title="닫기 (T/ESC)">✕</button>
+      </div>
+
+      <div class="quick-chat-body">
+        <div class="chat-category-group">
+          <div class="category-title">🌟 칭찬과 격려</div>
+          <div class="phrase-grid">
+            <button class="chat-phrase-btn" data-msg="멋진 집이네요! 🏠">멋진 집이네요! 🏠</button>
+            <button class="chat-phrase-btn" data-msg="정말 대단해요! 👏">정말 대단해요! 👏</button>
+            <button class="chat-phrase-btn" data-msg="친환경 마을 함께 만들어요! 🌲">친환경 마을 함께 만들어요! 🌲</button>
+            <button class="chat-phrase-btn" data-msg="조금만 더 힘내요! 💪">조금만 더 힘내요! 💪</button>
+          </div>
+        </div>
+
+        <div class="chat-category-group">
+          <div class="category-title">🤝 감사와 협동</div>
+          <div class="phrase-grid">
+            <button class="chat-phrase-btn" data-msg="도와줘서 고마워요! ✨">도와줘서 고마워요! ✨</button>
+            <button class="chat-phrase-btn" data-msg="블록이 필요하면 말씀하세요! 📦">블록이 필요하면 말씀하세요! 📦</button>
+            <button class="chat-phrase-btn" data-msg="함께 만드니 즐거워요! 😊">함께 만드니 즐거워요! 😊</button>
+            <button class="chat-phrase-btn" data-msg="여기 자원이 많아요! ⛏️">여기 자원이 많아요! ⛏️</button>
+          </div>
+        </div>
+
+        <div class="chat-category-group">
+          <div class="category-title">📢 인사와 소통</div>
+          <div class="phrase-grid">
+            <button class="chat-phrase-btn" data-msg="안녕하세요! 반가워요 👋">안녕하세요! 반가워요 👋</button>
+            <button class="chat-phrase-btn" data-msg="마을로 모여주세요! 🏡">마을로 모여주세요! 🏡</button>
+            <button class="chat-phrase-btn" data-msg="선생님, 질문이 있어요! 🙋">선생님, 질문이 있어요! 🙋</button>
+            <button class="chat-phrase-btn" data-msg="와~ 다 만들었어요! 🎉">와~ 다 만들었어요! 🎉</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-chat-footer">
+        <span class="quick-chat-tip">💡 <kbd>T</kbd> 키를 누르면 언제든 칭찬 소통창을 빠르게 열고 닫을 수 있습니다.</span>
+      </div>
+    </div>
+  </div>
 
   <!-- 3x3 마인크래프트 정통 조합대 모달 -->
   <div id="crafting-modal" class="modal-backdrop hidden">

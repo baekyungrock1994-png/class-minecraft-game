@@ -12,6 +12,7 @@ import {
   get,
   update,
   remove,
+  push,
   onValue,
   onChildAdded,
   onChildChanged,
@@ -46,6 +47,15 @@ export interface BlockDeltaData {
   placedBy: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  senderUid: string;
+  senderName: string;
+  role: 'teacher' | 'student';
+  message: string;
+  timestamp: number;
+}
+
 export class NetworkManager {
   private app: FirebaseApp;
   private auth: Auth;
@@ -64,6 +74,8 @@ export class NetworkManager {
     mesh: THREE.Group;
     targetPos: THREE.Vector3;
     targetRotY: number;
+    speechBubble?: THREE.Sprite;
+    bubbleTimeout?: any;
   }> = new Map();
 
   private scene: THREE.Scene;
@@ -75,6 +87,8 @@ export class NetworkManager {
   public onRoomReset?: () => void;
   public onPlotReset?: (plotId: number) => void;
   public onPlayerListUpdate?: (players: PlayerNetworkData[]) => void;
+  public onChatMessage?: (chat: ChatMessage) => void;
+  public onMyNameChanged?: (newName: string) => void;
   public joinTimestamp: number = Date.now();
 
   constructor(scene: THREE.Scene) {
@@ -257,7 +271,15 @@ export class NetworkManager {
           playersList.push(p);
           currentUids.add(uid);
 
-          if (uid !== this.currentUser?.uid) {
+          if (uid === this.currentUser?.uid) {
+            // 관리자(교사)에 의해 본인 닉네임이 변경된 경우 감지
+            if (p.name && this.playerName !== p.name) {
+              this.playerName = p.name;
+              if (this.onMyNameChanged) {
+                this.onMyNameChanged(p.name);
+              }
+            }
+          } else {
             this.handleRemotePlayerData(p);
           }
         }
@@ -266,6 +288,7 @@ export class NetworkManager {
       // 나간 플레이어 제거
       for (const [uid, remote] of this.remotePlayers.entries()) {
         if (!currentUids.has(uid)) {
+          if (remote.bubbleTimeout) clearTimeout(remote.bubbleTimeout);
           this.scene.remove(remote.mesh);
           this.remotePlayers.delete(uid);
         }
@@ -301,6 +324,20 @@ export class NetworkManager {
         if (this.onPlotReset) {
           this.onPlotReset(data.plotId);
         }
+      }
+    });
+
+    // 5. 긍정적 언어 실시간 채팅 동기화
+    const chatsRef = ref(this.db, `rooms/${this.roomCode}/chats`);
+    onChildAdded(chatsRef, (snap) => {
+      if (!snap.exists()) return;
+      const val = snap.val() as ChatMessage;
+      val.id = snap.key || '';
+      if (val && val.timestamp >= this.joinTimestamp - 4000) {
+        if (this.onChatMessage) {
+          this.onChatMessage(val);
+        }
+        this.showAvatarSpeechBubble(val.senderUid, val.message);
       }
     });
   }
@@ -421,6 +458,17 @@ export class NetworkManager {
         targetRotY: data.rotY
       };
       this.remotePlayers.set(data.uid, remote);
+    } else {
+      // 닉네임이 관리자에 의해 변경되었으면 3D 명찰 즉시 교체
+      if (remote.data.name !== data.name) {
+        const oldSprite = remote.mesh.getObjectByName('nameSprite');
+        if (oldSprite) remote.mesh.remove(oldSprite);
+        const labelText = data.role === 'teacher' ? `👑 ${data.name} (선생님)` : `🧑‍🎓 ${data.name} (#${data.plotId} 대지)`;
+        const newSprite = this.createNameSprite(labelText, data.role === 'teacher');
+        newSprite.name = 'nameSprite';
+        newSprite.position.y = 2.0;
+        remote.mesh.add(newSprite);
+      }
     }
 
     remote.data = data;
@@ -489,10 +537,109 @@ export class NetworkManager {
     // 5. 머리 위 3D 닉네임 라벨 (Canvas 기반 스프라이트)
     const labelText = role === 'teacher' ? `👑 ${name} (선생님)` : `🧑‍🎓 ${name} (#${plotId} 대지)`;
     const nameSprite = this.createNameSprite(labelText, role === 'teacher');
+    nameSprite.name = 'nameSprite';
     nameSprite.position.y = 2.0;
     group.add(nameSprite);
 
     return group;
+  }
+
+  /**
+   * 머리 위에 띄울 3D 말풍선 생성 및 4.5초 뒤 자동 제거
+   */
+  public showAvatarSpeechBubble(senderUid: string, message: string): void {
+    const remote = this.remotePlayers.get(senderUid);
+    if (!remote) return;
+
+    if (remote.speechBubble) {
+      remote.mesh.remove(remote.speechBubble);
+      if (remote.bubbleTimeout) clearTimeout(remote.bubbleTimeout);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 440;
+    canvas.height = 120;
+    const ctx = canvas.getContext('2d')!;
+
+    // 말풍선 배경
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 5;
+
+    ctx.beginPath();
+    ctx.roundRect(10, 10, canvas.width - 20, canvas.height - 35, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    // 말풍선 꼬리표
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 - 15, canvas.height - 25);
+    ctx.lineTo(canvas.width / 2, canvas.height - 5);
+    ctx.lineTo(canvas.width / 2 + 15, canvas.height - 25);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fill();
+    ctx.stroke();
+
+    // 텍스트 출력
+    ctx.font = 'bold 24px "Pretendard", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(message, canvas.width / 2, (canvas.height - 35) / 2 + 10);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+    const bubble = new THREE.Sprite(spriteMat);
+    bubble.scale.set(2.0, 0.55, 1.0);
+    bubble.position.y = 2.65;
+
+    remote.speechBubble = bubble;
+    remote.mesh.add(bubble);
+
+    remote.bubbleTimeout = setTimeout(() => {
+      if (remote.speechBubble) {
+        remote.mesh.remove(remote.speechBubble);
+        remote.speechBubble = undefined;
+      }
+    }, 4500);
+  }
+
+  /**
+   * 관리자(교사) 전용: 학생 닉네임 강제 변경
+   */
+  public async changePlayerName(targetUid: string, newName: string): Promise<void> {
+    if (!this.roomCode) return;
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+
+    const playerRef = ref(this.db, `rooms/${this.roomCode}/players/${targetUid}/name`);
+    await set(playerRef, cleanName);
+
+    if (this.currentUser?.uid === targetUid) {
+      this.playerName = cleanName;
+    }
+  }
+
+  /**
+   * 긍정적인 언어로 된 멘트 채팅 전송
+   */
+  public async sendChatMessage(message: string): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+    const cleanMsg = message.trim();
+    if (!cleanMsg) return;
+
+    const chatsRef = ref(this.db, `rooms/${this.roomCode}/chats`);
+    const newChatRef = push(chatsRef);
+    const chatData: Omit<ChatMessage, 'id'> = {
+      senderUid: this.currentUser.uid,
+      senderName: this.playerName,
+      role: this.role,
+      message: cleanMsg,
+      timestamp: Date.now()
+    };
+    await set(newChatRef, chatData);
   }
 
   /**

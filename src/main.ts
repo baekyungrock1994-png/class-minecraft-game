@@ -4,7 +4,7 @@ import { PlayerController, BlockInteractEvent } from './game/PlayerController.ts
 import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
 import { BlockType, ToolType, WorldType, WORLD_HEIGHT } from './core/Constants.ts';
-import { NetworkManager, BlockDeltaData } from './core/NetworkManager.ts';
+import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage } from './core/NetworkManager.ts';
 
 class GameApp {
   private scene: THREE.Scene;
@@ -52,6 +52,23 @@ class GameApp {
   private flyStatusBadge: HTMLElement;
   private flyModePill: HTMLElement;
 
+  // 참여자 명단 및 닉네임 관리 모달 요소
+  private playerListModal: HTMLElement;
+  private btnPlayerList: HTMLElement;
+  private btnClosePlayerList: HTMLElement;
+  private btnClosePlayerListBottom: HTMLElement;
+  private playerListSubtitle: HTMLElement;
+  private playerListRoomCode: HTMLElement;
+  private playerListAdminNotice: HTMLElement;
+  private playerRosterContainer: HTMLElement;
+  private currentPlayers: PlayerNetworkData[] = [];
+
+  // 칭찬 & 긍정 언어 채팅 모달 및 로그 요소
+  private quickChatModal: HTMLElement;
+  private btnOpenChat: HTMLElement;
+  private btnCloseQuickChat: HTMLElement;
+  private chatMessagesContainer: HTMLElement;
+
   private timeOfDay: number = 12.0; // 0 ~ 24 시간 단위 (기본 12:00 정오 화창한 낮)
   private isTimeAutoAdvancing: boolean = false; // [수정사항 3]: 시간의 흐름 시스템 삭제 (항상 밝은 상태 유지)
   private timeAdvanceSpeed: number = 0;
@@ -82,6 +99,22 @@ class GameApp {
     this.btnToggleFly = document.getElementById('btn-toggle-fly') as HTMLButtonElement;
     this.flyStatusBadge = document.getElementById('fly-status-badge')!;
     this.flyModePill = document.getElementById('fly-mode-pill')!;
+
+    // 참여자 명단 요소
+    this.playerListModal = document.getElementById('player-list-modal')!;
+    this.btnPlayerList = document.getElementById('btn-player-list')!;
+    this.btnClosePlayerList = document.getElementById('btn-close-player-list')!;
+    this.btnClosePlayerListBottom = document.getElementById('btn-close-player-list-bottom')!;
+    this.playerListSubtitle = document.getElementById('player-list-subtitle')!;
+    this.playerListRoomCode = document.getElementById('player-list-room-code')!;
+    this.playerListAdminNotice = document.getElementById('player-list-admin-notice')!;
+    this.playerRosterContainer = document.getElementById('player-roster-container')!;
+
+    // 칭찬 소통 채팅 요소
+    this.quickChatModal = document.getElementById('quick-chat-modal')!;
+    this.btnOpenChat = document.getElementById('btn-open-chat')!;
+    this.btnCloseQuickChat = document.getElementById('btn-close-quick-chat')!;
+    this.chatMessagesContainer = document.getElementById('chat-messages-container')!;
 
     // 1. Three.js 기본 씬 & 카메라
     this.scene = new THREE.Scene();
@@ -198,6 +231,8 @@ class GameApp {
     this.setupWindowResize();
     this.setupWorldTabs();
     this.setupDevTools();
+    this.setupPlayerListModal();
+    this.setupQuickChatModal();
 
     // 초기 시간 및 구획 UI 갱신
     this.setTime(12.0);
@@ -835,7 +870,9 @@ class GameApp {
         target.closest('#hotbar') ||
         target.closest('#crafting-modal') ||
         target.closest('#dev-panel') ||
-        target.closest('#click-to-play')
+        target.closest('#click-to-play') ||
+        target.closest('#player-list-modal') ||
+        target.closest('#quick-chat-modal')
       ) {
         return;
       }
@@ -864,6 +901,8 @@ class GameApp {
         this.startModal.classList.add('hidden');
         this.mouseModeHint.classList.add('hidden');
         this.devPanel.classList.add('hidden');
+        this.playerListModal.classList.add('hidden');
+        this.quickChatModal.classList.add('hidden');
         this.player.isModalOpen = false;
         if (this.craftingUI && this.craftingUI.isOpen) {
           this.craftingUI.close();
@@ -883,7 +922,7 @@ class GameApp {
     // 버튼 클릭 후 포커스가 남아 스페이스바(점프) 입력 시 버튼이 재클릭되는 브라우저 기본 동작 원천 차단
     window.addEventListener('mouseup', () => {
       const active = document.activeElement as HTMLElement | null;
-      if (active && (active.tagName === 'BUTTON' || active.classList.contains('world-tab') || active.classList.contains('dev-toggle-btn'))) {
+      if (active && (active.tagName === 'BUTTON' || active.classList.contains('world-tab') || active.classList.contains('dev-toggle-btn') || active.classList.contains('chat-toggle-btn') || active.classList.contains('clickable-badge'))) {
         active.blur();
       }
     });
@@ -893,8 +932,28 @@ class GameApp {
       console.warn('Pointer lock request error handled');
     });
 
-    // 6. 편의 단축키: 오직 F2 키만 교사 권한일 때 개발자 패널 토글 (실수 유발하는 Backquote 키 제거)
+    // 6. 단축키 핸들러
     window.addEventListener('keydown', (e) => {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      const isInput = ['INPUT', 'SELECT', 'TEXTAREA'].includes(targetTag);
+
+      // ESC 키로 열려있는 모달창 닫기
+      if (e.code === 'Escape') {
+        if (!this.playerListModal.classList.contains('hidden')) {
+          this.closePlayerListModal();
+        }
+        if (!this.quickChatModal.classList.contains('hidden')) {
+          this.closeQuickChat();
+        }
+      }
+
+      // [소통 기능]: 'T' 키를 누르면 칭찬 & 소통 채팅창 토글
+      if (e.code === 'KeyT' && !isInput && this.hasGameStarted) {
+        e.preventDefault();
+        this.toggleQuickChat();
+        return;
+      }
+
       if (e.code === 'F2') {
         if (this.networkManager.role !== 'teacher') return;
         e.preventDefault();
@@ -918,7 +977,7 @@ class GameApp {
       }
 
       // [개발자 기능]: 'F' 키를 누르면 비행 모드 온/오프 즉시 토글 (교사 전용)
-      if (e.code === 'KeyF' && !this.player.isModalOpen && !['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+      if (e.code === 'KeyF' && !this.player.isModalOpen && !isInput) {
         if (this.networkManager.role === 'teacher') {
           e.preventDefault();
           this.toggleFlyMode();
@@ -961,14 +1020,20 @@ class GameApp {
       this.showNotification('선생님이 마을 건축물을 초기화했습니다!', '📢');
     };
 
-    // 3. 플레이어 목록 갱신 (접속자 수 실시간 표시)
+    // 3. 플레이어 목록 갱신 (접속자 수 실시간 표시 & 명단 모달 갱신)
     this.networkManager.onPlayerListUpdate = (players) => {
+      this.currentPlayers = players;
       const code = this.networkManager.roomCode;
       const count = players.length;
       if (this.networkManager.role === 'teacher') {
         this.roomDisplayEl.textContent = `[#${code}] 👑 ${count}/16명`;
       } else {
-        this.roomDisplayEl.textContent = `[#${code}] 우리 반 (${count}/16명)`;
+        this.roomDisplayEl.textContent = `[#${code}] 👥 ${count}/16명`;
+      }
+      this.playerListSubtitle.textContent = `현재 ${count}/16명 참여 중`;
+      this.playerListRoomCode.textContent = code;
+      if (!this.playerListModal.classList.contains('hidden')) {
+        this.renderPlayerRoster();
       }
     };
 
@@ -976,6 +1041,19 @@ class GameApp {
     this.networkManager.onPlotReset = (plotId: number) => {
       this.world.resetPlot(plotId);
       this.showNotification(`🧹 [대지 #${plotId}] 건축물이 선생님에 의해 초기 상태로 복구되었습니다!`, '✨');
+    };
+
+    // 5. 관리자에 의해 내 닉네임이 변경된 경우 실시간 알림 및 UI 반영
+    this.networkManager.onMyNameChanged = (newName: string) => {
+      this.showNotification(`📢 선생님이 내 닉네임을 [${newName}](으)로 변경했습니다!`, '✏️');
+      if (this.networkManager.role === 'student') {
+        this.playerDisplayEl.textContent = `${newName} (#${this.player.assignedPlotIndex})`;
+      }
+    };
+
+    // 6. 긍정적 멘트 실시간 채팅 수신
+    this.networkManager.onChatMessage = (chat: ChatMessage) => {
+      this.displayIncomingChat(chat);
     };
   }
 
@@ -1293,6 +1371,220 @@ class GameApp {
         fog.density = 0.012;
       }
     }
+  }
+
+  /**
+   * 참여자 명단 및 닉네임 관리 모달 이벤트 등록
+   */
+  private setupPlayerListModal(): void {
+    this.btnPlayerList.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.btnPlayerList.blur();
+      this.openPlayerListModal();
+    });
+
+    this.btnClosePlayerList.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closePlayerListModal();
+    });
+
+    this.btnClosePlayerListBottom.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closePlayerListModal();
+    });
+  }
+
+  private openPlayerListModal(): void {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.player.isModalOpen = true;
+    this.playerListModal.classList.remove('hidden');
+
+    const isTeacher = this.networkManager.role === 'teacher';
+    this.playerListAdminNotice.textContent = isTeacher
+      ? '👑 관리자 모드: 부적절한 닉네임을 가진 학생의 닉네임을 직접 수정할 수 있습니다.'
+      : '👥 현재 우리 반 마을에 참여 중인 친구들의 명단입니다.';
+
+    this.renderPlayerRoster();
+  }
+
+  private closePlayerListModal(): void {
+    this.playerListModal.classList.add('hidden');
+    this.player.isModalOpen = false;
+    this.requestPointerLockSafely();
+  }
+
+  /**
+   * 참여자 명단 렌더링 및 닉네임 강제 변경 버튼 제공
+   */
+  private renderPlayerRoster(): void {
+    this.playerRosterContainer.innerHTML = '';
+    const isTeacher = this.networkManager.role === 'teacher';
+
+    if (this.currentPlayers.length === 0) {
+      this.playerRosterContainer.innerHTML = '<div class="empty-roster-msg">현재 접속 중인 플레이어가 없습니다.</div>';
+      return;
+    }
+
+    this.currentPlayers.forEach((p) => {
+      const card = document.createElement('div');
+      card.className = `player-roster-card ${p.role}`;
+
+      const left = document.createElement('div');
+      left.className = 'player-roster-left';
+
+      const icon = document.createElement('span');
+      icon.className = 'roster-role-icon';
+      icon.textContent = p.role === 'teacher' ? '👑' : '🧑‍🎓';
+
+      const info = document.createElement('div');
+      info.className = 'roster-info';
+
+      const nameRow = document.createElement('div');
+      nameRow.className = 'roster-name-row';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'roster-player-name';
+      nameSpan.textContent = p.name;
+      if (p.uid === this.networkManager.currentUser?.uid) {
+        nameSpan.textContent += ' (나)';
+      }
+
+      const roleBadge = document.createElement('span');
+      roleBadge.className = `roster-badge ${p.role}`;
+      roleBadge.textContent = p.role === 'teacher' ? '선생님' : '학생';
+
+      const plotBadge = document.createElement('span');
+      plotBadge.className = 'roster-badge plot-badge';
+      plotBadge.textContent = p.role === 'teacher' ? '전체 관리' : `#${p.plotId}번 대지`;
+
+      nameRow.appendChild(nameSpan);
+      nameRow.appendChild(roleBadge);
+      nameRow.appendChild(plotBadge);
+
+      const subRow = document.createElement('div');
+      subRow.className = 'roster-sub-row';
+      subRow.textContent = `📍 현재 위치: ${p.currentWorld === 'town' ? '평지 마을' : '자원 구역'}`;
+
+      info.appendChild(nameRow);
+      info.appendChild(subRow);
+
+      left.appendChild(icon);
+      left.appendChild(info);
+      card.appendChild(left);
+
+      // 교사(관리자)에게만 학생 닉네임 강제 변경 버튼 제공
+      if (isTeacher && p.role === 'student') {
+        const right = document.createElement('div');
+        right.className = 'player-roster-right';
+
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'roster-rename-btn';
+        renameBtn.innerHTML = '✏️ 닉네임 변경';
+        renameBtn.title = '이 학생의 닉네임을 변경합니다';
+        renameBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const newName = prompt(`[${p.name}] 학생의 새로운 닉네임을 입력하세요:`, p.name);
+          if (newName && newName.trim() && newName.trim() !== p.name) {
+            const clean = newName.trim();
+            this.networkManager.changePlayerName(p.uid, clean);
+            this.showNotification(`[${p.name}] 학생의 닉네임을 [${clean}](으)로 변경했습니다.`, '✏️');
+          }
+        });
+
+        right.appendChild(renameBtn);
+        card.appendChild(right);
+      }
+
+      this.playerRosterContainer.appendChild(card);
+    });
+  }
+
+  /**
+   * 긍정적 언어 칭찬 소통 채팅 모달 설정
+   */
+  private setupQuickChatModal(): void {
+    this.btnOpenChat.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.btnOpenChat.blur();
+      this.toggleQuickChat();
+    });
+
+    this.btnCloseQuickChat.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeQuickChat();
+    });
+
+    // 멘트 버튼 클릭 시 채팅 전송
+    const phraseBtns = document.querySelectorAll('.chat-phrase-btn');
+    phraseBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const msg = btn.getAttribute('data-msg') || btn.textContent || '';
+        if (msg) {
+          this.networkManager.sendChatMessage(msg);
+          this.closeQuickChat();
+        }
+      });
+    });
+  }
+
+  private toggleQuickChat(): void {
+    if (this.quickChatModal.classList.contains('hidden')) {
+      this.openQuickChat();
+    } else {
+      this.closeQuickChat();
+    }
+  }
+
+  private openQuickChat(): void {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.player.isModalOpen = true;
+    this.quickChatModal.classList.remove('hidden');
+  }
+
+  private closeQuickChat(): void {
+    this.quickChatModal.classList.add('hidden');
+    this.player.isModalOpen = false;
+    this.requestPointerLockSafely();
+  }
+
+  /**
+   * 수신된 칭찬 소통 채팅을 좌측 하단 HUD에 출력
+   */
+  private displayIncomingChat(chat: ChatMessage): void {
+    const item = document.createElement('div');
+    item.className = `chat-bubble-card ${chat.role}`;
+
+    const sender = document.createElement('span');
+    sender.className = 'chat-sender';
+    sender.textContent = chat.role === 'teacher' ? `👑 ${chat.senderName}: ` : `🧑‍🎓 ${chat.senderName}: `;
+
+    const msg = document.createElement('span');
+    msg.className = 'chat-text';
+    msg.textContent = chat.message;
+
+    item.appendChild(sender);
+    item.appendChild(msg);
+
+    this.chatMessagesContainer.appendChild(item);
+
+    // 최대 6개 메시지만 화면에 보관
+    while (this.chatMessagesContainer.children.length > 6) {
+      this.chatMessagesContainer.removeChild(this.chatMessagesContainer.firstChild!);
+    }
+
+    // 7.5초 후 자연스럽게 fade-out 삭제
+    setTimeout(() => {
+      item.classList.add('fade-out');
+      setTimeout(() => {
+        if (item.parentNode) {
+          item.parentNode.removeChild(item);
+        }
+      }, 500);
+    }, 7500);
   }
 }
 
