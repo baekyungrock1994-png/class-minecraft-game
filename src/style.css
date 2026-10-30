@@ -1360,47 +1360,226 @@ kbd {
   line-height: 1.4;
 }
 
-/* 탭 바 */
-.auth-tabs {
-  display: flex;
-  gap: 8px;
-  background: rgba(30, 41, 59, 0.7);
-  padding: 6px;
-  border-radius: 12px;
-  margin-bottom: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* 역할 선택 안내 텍스트 */
+.role-selection-prompt {
+  margin: 18px 0 16px;
+  text-align: center;
 }
 
-.auth-tab {
-  flex: 1;
+.role-selection-prompt .prompt-text {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  letter-spacing: -0.2px;
+}
+
+/* 1단계: 역할 선택 카드 컨테이너 */
+.role-choice-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.role-choice-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 20px;
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: left;
+  border: 1.5px solid transparent;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  outline: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.role-choice-card:focus-visible {
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.5);
+}
+
+/* 1. 교사 카드 테마 */
+.role-choice-card.role-teacher {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(30, 58, 138, 0.45) 100%);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.role-choice-card.role-teacher:hover {
+  transform: translateY(-3px);
+  border-color: #60a5fa;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(37, 99, 235, 0.55) 100%);
+  box-shadow: 0 10px 25px -4px rgba(59, 130, 246, 0.4);
+}
+
+/* 2. 학생 카드 테마 */
+.role-choice-card.role-student {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(6, 78, 59, 0.45) 100%);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.role-choice-card.role-student:hover {
+  transform: translateY(-3px);
+  border-color: #34d399;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(5, 150, 105, 0.55) 100%);
+  box-shadow: 0 10px 25px -4px rgba(16, 185, 129, 0.4);
+}
+
+.role-icon-box {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 0.2s ease;
+}
+
+.role-choice-card:hover .role-icon-box {
+  transform: scale(1.08);
+}
+
+.role-icon {
+  font-size: 28px;
+}
+
+.role-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.role-title-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
+}
+
+.role-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: -0.3px;
+}
+
+.role-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.teacher-tag {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.student-tag {
+  background: rgba(16, 185, 129, 0.25);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.role-desc {
+  font-size: 12.5px;
   color: #94a3b8;
-  font-size: 14px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.role-arrow {
+  font-size: 20px;
+  font-weight: 800;
+  color: #64748b;
+  transition: all 0.2s ease;
+  padding-left: 4px;
+}
+
+.role-choice-card:hover .role-arrow {
+  color: #ffffff;
+  transform: translateX(4px);
+}
+
+/* 2단계: 단계 헤더 & 뒤로 가기 버튼 */
+.auth-step {
+  animation: authStepFadeIn 0.22s ease-out;
+}
+
+@keyframes authStepFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.back-step-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
 }
 
-.auth-tab:hover {
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.auth-tab.active {
-  background: #3b82f6;
+.back-step-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+  transform: translateX(-2px);
 }
 
-/* 패널 폼 요소 */
-.auth-panel {
+.step-role-badge {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: 20px;
+}
+
+.step-role-badge.teacher {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.step-role-badge.student {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+/* 폼 컨텐츠 공통 레이아웃 */
+.auth-form-content {
   display: flex;
   flex-direction: column;
   gap: 16px;

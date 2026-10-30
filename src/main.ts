@@ -980,13 +980,17 @@ class GameApp {
   }
 
   /**
-   * 로그인 및 방 생성/참가 모달 이벤트
+   * 로그인 및 방 생성/참가 모달 이벤트 (2단계 구조: 1단계 역할 선택 -> 2단계 정보 입력)
    */
   private setupAuthModal(): void {
-    const tabTeacher = document.getElementById('tab-teacher')!;
-    const tabStudent = document.getElementById('tab-student')!;
-    const panelTeacher = document.getElementById('panel-teacher')!;
-    const panelStudent = document.getElementById('panel-student')!;
+    const authStepSelect = document.getElementById('auth-step-select')!;
+    const authStepTeacher = document.getElementById('auth-step-teacher')!;
+    const authStepStudent = document.getElementById('auth-step-student')!;
+
+    const btnSelectTeacher = document.getElementById('btn-select-teacher')!;
+    const btnSelectStudent = document.getElementById('btn-select-student')!;
+    const btnBackTeacher = document.getElementById('btn-back-teacher')!;
+    const btnBackStudent = document.getElementById('btn-back-student')!;
 
     const teacherNameInput = document.getElementById('teacher-name-input') as HTMLInputElement;
     const roomTitleInput = document.getElementById('room-title-input') as HTMLInputElement;
@@ -1011,21 +1015,34 @@ class GameApp {
       authErrorMsg.classList.add('hidden');
     };
 
-    // 탭 전환
-    tabTeacher.addEventListener('click', () => {
+    // 1단계 -> 2단계: 교사 선택
+    btnSelectTeacher.addEventListener('click', () => {
       clearError();
-      tabTeacher.classList.add('active');
-      tabStudent.classList.remove('active');
-      panelTeacher.classList.remove('hidden');
-      panelStudent.classList.add('hidden');
+      authStepSelect.classList.add('hidden');
+      authStepTeacher.classList.remove('hidden');
+      setTimeout(() => teacherNameInput.focus(), 50);
     });
 
-    tabStudent.addEventListener('click', () => {
+    // 1단계 -> 2단계: 학생 선택
+    btnSelectStudent.addEventListener('click', () => {
       clearError();
-      tabStudent.classList.add('active');
-      tabTeacher.classList.remove('active');
-      panelStudent.classList.remove('hidden');
-      panelTeacher.classList.add('hidden');
+      authStepSelect.classList.add('hidden');
+      authStepStudent.classList.remove('hidden');
+      setTimeout(() => studentRoomCode.focus(), 50);
+    });
+
+    // 2단계 -> 1단계: 교사 폼에서 뒤로 가기
+    btnBackTeacher.addEventListener('click', () => {
+      clearError();
+      authStepTeacher.classList.add('hidden');
+      authStepSelect.classList.remove('hidden');
+    });
+
+    // 2단계 -> 1단계: 학생 폼에서 뒤로 가기
+    btnBackStudent.addEventListener('click', () => {
+      clearError();
+      authStepStudent.classList.add('hidden');
+      authStepSelect.classList.remove('hidden');
     });
 
     // 1. 선생님 방 생성

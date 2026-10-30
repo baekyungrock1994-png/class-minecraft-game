@@ -305,29 +305,64 @@
     </div>
   </div>
 
-  <!-- 게임 시작 / 방 생성 및 참가 모달 오버레이 -->
+  <!-- 게임 시작 / 방 생성 및 참가 모달 오버레이 (2단계 구조) -->
   <div id="click-to-play" class="modal-backdrop">
     <div class="modal-card auth-card">
-      <div class="auth-header">
-        <h1 class="game-title">🌲 우리 마을 꾸미기</h1>
-        <p class="game-subtitle">친구들과 함께 10x10 대지에 집을 짓는 실시간 교실 복셀 게임</p>
+      
+      <!-- 1단계: 역할 선택 화면 (초기 화면 - 2개 버튼만 명확히 노출) -->
+      <div id="auth-step-select" class="auth-step">
+        <div class="auth-header">
+          <h1 class="game-title">🌲 우리 마을 꾸미기</h1>
+          <p class="game-subtitle">친구들과 함께 10x10 대지에 집을 짓는 실시간 교실 복셀 게임</p>
+        </div>
+
+        <div class="role-selection-prompt">
+          <span class="prompt-text">입장하실 역할을 선택해 주세요</span>
+        </div>
+
+        <div class="role-choice-container">
+          <!-- 1. 교사로 들어가기 버튼 -->
+          <button id="btn-select-teacher" class="role-choice-card role-teacher" type="button">
+            <div class="role-icon-box">
+              <span class="role-icon">👑</span>
+            </div>
+            <div class="role-info">
+              <div class="role-title-row">
+                <span class="role-name">교사로 들어가기</span>
+                <span class="role-tag teacher-tag">방 만들기</span>
+              </div>
+              <p class="role-desc">새 교실 방을 생성하고 5자리 코드를 발급합니다</p>
+            </div>
+            <div class="role-arrow">→</div>
+          </button>
+
+          <!-- 2. 학생으로 들어가기 버튼 -->
+          <button id="btn-select-student" class="role-choice-card role-student" type="button">
+            <div class="role-icon-box">
+              <span class="role-icon">🧑‍🎓</span>
+            </div>
+            <div class="role-info">
+              <div class="role-title-row">
+                <span class="role-name">학생으로 들어가기</span>
+                <span class="role-tag student-tag">방 참가하기</span>
+              </div>
+              <p class="role-desc">선생님이 알려주신 5자리 코드로 마을에 참가합니다</p>
+            </div>
+            <div class="role-arrow">→</div>
+          </button>
+        </div>
       </div>
 
-      <!-- 역할 선택 탭 -->
-      <div class="auth-tabs">
-        <button id="tab-teacher" class="auth-tab active">
-          <span class="auth-tab-icon">👑</span>
-          <span>선생님 (방 만들기)</span>
-        </button>
-        <button id="tab-student" class="auth-tab">
-          <span class="auth-tab-icon">🧑‍🎓</span>
-          <span>학생 (방 참가하기)</span>
-        </button>
-      </div>
+      <!-- 2단계: 선생님 전용 폼 -->
+      <div id="auth-step-teacher" class="auth-step hidden">
+        <div class="auth-step-header">
+          <button id="btn-back-teacher" class="back-step-btn" type="button" title="역할 선택으로 돌아가기">
+            <span class="back-icon">←</span> 역할 다시 선택
+          </button>
+          <div class="step-role-badge teacher">👑 교사 (방 만들기)</div>
+        </div>
 
-      <!-- 1. 선생님 전용 폼 -->
-      <div id="panel-teacher" class="auth-panel">
-        <div id="teacher-form-section">
+        <div id="teacher-form-section" class="auth-form-content">
           <div class="form-group">
             <label for="teacher-name-input">선생님 이름 / 호칭</label>
             <input type="text" id="teacher-name-input" class="auth-input" placeholder="예: 김선생님" maxlength="12" value="김선생님" />
@@ -336,34 +371,43 @@
             <label for="room-title-input">수업 / 마을 이름</label>
             <input type="text" id="room-title-input" class="auth-input" placeholder="예: 3학년 1반 마을" maxlength="20" value="3학년 1반 마을" />
           </div>
-          <p class="auth-info-note">💡 방을 생성하면 <strong>5자리 고유 코드</strong>가 발급되며, 최대 16명의 학생이 입장할 수 있습니다.</p>
+          <p class="auth-info-note">💡 방을 생성하면 <strong>5자리 고유 코드</strong>가 발급되며, 학생들과 함께 건축을 진행할 수 있습니다.</p>
           <button id="btn-create-room" class="primary-btn full-btn">🚀 5자리 코드로 교실 방 만들기</button>
         </div>
 
         <!-- 방 생성 완료 시 코드 안내 화면 -->
-        <div id="teacher-code-section" class="hidden">
+        <div id="teacher-code-section" class="hidden auth-form-content">
           <div class="code-display-box">
             <span class="code-label">📢 학생들에게 알려줄 5자리 방 코드</span>
             <div class="big-room-code" id="display-created-code">-----</div>
-            <button id="btn-copy-code" class="copy-btn">📋 코드 복사하기</button>
+            <button id="btn-copy-code" class="copy-btn" type="button">📋 코드 복사하기</button>
           </div>
-          <p class="auth-info-note success">✨ 방이 성공적으로 개설되었습니다! 학생들이 이 코드를 입력하고 들어오면 자동으로 자리가 배정됩니다.</p>
+          <p class="auth-info-note success">✨ 방이 성공적으로 개설되었습니다! 학생들에게 이 5자리 코드를 공유해주세요.</p>
           <button id="btn-enter-as-teacher" class="primary-btn full-btn">마을 관리자로 입장하기</button>
         </div>
       </div>
 
-      <!-- 2. 학생 전용 폼 -->
-      <div id="panel-student" class="auth-panel hidden">
-        <div class="form-group">
-          <label for="student-room-code">5자리 방 코드</label>
-          <input type="text" id="student-room-code" class="auth-input code-input" placeholder="5자리 숫자 (예: 48291)" maxlength="5" />
+      <!-- 2단계: 학생 전용 폼 -->
+      <div id="auth-step-student" class="auth-step hidden">
+        <div class="auth-step-header">
+          <button id="btn-back-student" class="back-step-btn" type="button" title="역할 선택으로 돌아가기">
+            <span class="back-icon">←</span> 역할 다시 선택
+          </button>
+          <div class="step-role-badge student">🧑‍🎓 학생 (방 참가하기)</div>
         </div>
-        <div class="form-group">
-          <label for="student-name-input">학생 이름 / 닉네임</label>
-          <input type="text" id="student-name-input" class="auth-input" placeholder="예: 홍길동" maxlength="10" />
+
+        <div class="auth-form-content">
+          <div class="form-group">
+            <label for="student-room-code">5자리 방 코드</label>
+            <input type="text" id="student-room-code" class="auth-input code-input" placeholder="예: 48291" maxlength="5" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="student-name-input">내 이름 / 닉네임</label>
+            <input type="text" id="student-name-input" class="auth-input" placeholder="예: 홍길동" maxlength="10" />
+          </div>
+          <p class="auth-info-note">💡 선생님이 알려주신 5자리 코드를 입력하세요. 1인당 10x10 나만의 대지가 자동 배정됩니다.</p>
+          <button id="btn-join-room" class="primary-btn full-btn">🎒 우리 반 마을로 참가하기</button>
         </div>
-        <p class="auth-info-note">💡 선생님이 알려주신 5자리 코드를 입력하세요. 1인당 10x10 대지가 자동 배정됩니다. (최대 16명 정원)</p>
-        <button id="btn-join-room" class="primary-btn full-btn">🎒 우리 반 마을로 참가하기</button>
       </div>
 
       <!-- 에러 메시지 팝업 -->
