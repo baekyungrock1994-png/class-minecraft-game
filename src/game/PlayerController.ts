@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VoxelWorld } from '../core/VoxelWorld.ts';
 import { BlockType, WORLD_SIZE, WORLD_HEIGHT, MAX_HP, ToolType, TOOL_METAS, BLOCK_BREAK_TIMES } from '../core/Constants.ts';
+import { PlayerViewModel } from './PlayerViewModel.ts';
 
 export interface BlockInteractEvent {
   x: number;
@@ -20,6 +21,9 @@ export class PlayerController {
   private pitch: number = 0;
   private isLocked: boolean = false;
   private isFirstMouseMoveAfterLock: boolean = false;
+
+  // 1인칭 팔 및 장착 도구/블록 3D 뷰모델
+  public viewModel: PlayerViewModel;
 
   // 10x10 구획 할당 & 개발자 권한
   public assignedPlotIndex: number = 1; // 기본 1번 대지 할당
@@ -105,7 +109,28 @@ export class PlayerController {
     this.highlightBox.visible = false;
     this.scene.add(this.highlightBox);
 
+    // 1인칭 팔 및 장착 도구/블록 3D 뷰모델 초기화
+    this.viewModel = new PlayerViewModel(this.camera);
+
     this.setupEventListeners();
+  }
+
+  /**
+   * 모달창(보관 상자, 조합대, 참여자 명단 등) 열림/닫힘 상태 설정
+   * 모달이 열리면 캐릭터 조작 및 이동을 즉시 완전 차단하여 키패드/마우스 오작동 방지
+   */
+  public setModalOpen(open: boolean): void {
+    this.isModalOpen = open;
+    if (open) {
+      // 모든 이동 키 및 물리 속도 초기화
+      for (const k in this.keys) {
+        this.keys[k] = false;
+      }
+      this.velocity.set(0, 0, 0);
+      this.isMining = false;
+      this.resetMiningProgress();
+      this.setPointerLocked(false);
+    }
   }
 
   public teleport(x: number, y: number, z: number): void {
@@ -175,6 +200,7 @@ export class PlayerController {
         if (e.code === 'Comma') {
           e.preventDefault();
           this.isMining = true;
+          this.viewModel.triggerSwing();
           return;
         }
         if (e.code === 'Slash') {
@@ -189,6 +215,11 @@ export class PlayerController {
         if (e.code.startsWith('Arrow')) {
           e.preventDefault();
         }
+      }
+
+      // 모달창이 열려있거나 텍스트 입력 중일 때는 게임 내 이동 키 입력 차단
+      if (isInputActive || this.isModalOpen) {
+        return;
       }
 
       if (this.keys.hasOwnProperty(e.code)) {
@@ -209,7 +240,7 @@ export class PlayerController {
     });
 
     window.addEventListener('mousemove', (e) => {
-      if (!this.isLocked) return;
+      if (!this.isLocked || this.isModalOpen) return;
       if (this.isFirstMouseMoveAfterLock) {
         this.isFirstMouseMoveAfterLock = false;
         return;
@@ -225,9 +256,10 @@ export class PlayerController {
 
     // 마우스 다운 (좌클릭 채굴 시작 / 우클릭 즉시 설치 또는 아이템 사용)
     window.addEventListener('mousedown', (e) => {
-      if (!this.isLocked) return;
+      if (!this.isLocked || this.isModalOpen) return;
       if (e.button === 0) {
         this.isMining = true;
+        this.viewModel.triggerSwing();
       } else if (e.button === 2) {
         if (this.onUseItem && this.onUseItem()) {
           return;
@@ -297,6 +329,17 @@ export class PlayerController {
     }
     this.updateCameraRotation();
     this.updateRaycast();
+
+    // 1인칭 팔 및 장착 도구/블록 3D 뷰모델 애니메이션 갱신
+    const isMoving = !this.isModalOpen && (this.keys.KeyW || this.keys.KeyA || this.keys.KeyS || this.keys.KeyD);
+    this.viewModel.update(
+      delta,
+      isMoving,
+      this.isMining,
+      this.currentTool,
+      this.currentSelectedBlock,
+      this.isModalOpen
+    );
   }
 
   /**
@@ -849,5 +892,8 @@ export class PlayerController {
 
     this.world.setBlock(px, py, pz, this.currentSelectedBlock);
     // setBlock 내부에서 해당 16x16 청크만 초고속 리빌드
+
+    // 1인칭 팔 스윙 연출
+    this.viewModel.triggerSwing();
   }
 }

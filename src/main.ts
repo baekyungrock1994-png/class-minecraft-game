@@ -253,11 +253,11 @@ class GameApp {
     // 조합대 및 제작(Crafting) 시스템 연동
     this.craftingUI = new CraftingUI(this.hotbar);
     this.player.onOpenCraftingTable = () => {
-      this.player.isModalOpen = true;
+      this.player.setModalOpen(true);
       this.craftingUI.open();
     };
     this.craftingUI.onClose = () => {
-      this.player.isModalOpen = false;
+      this.player.setModalOpen(false);
       this.requestPointerLockSafely();
     };
     this.craftingUI.onCraftSuccess = (msg: string) => {
@@ -1052,7 +1052,9 @@ class GameApp {
 
   public requestPointerLockSafely(): void {
     if (!this.hasGameStarted) return;
+    if (this.player && this.player.isModalOpen) return;
     if (this.craftingUI && this.craftingUI.isOpen) return;
+    if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
     if (document.pointerLockElement === this.renderer.domElement) return;
 
     if (!this.devPanel.classList.contains('hidden')) {
@@ -1094,7 +1096,9 @@ class GameApp {
     const handleScreenInteractToLock = (e: MouseEvent) => {
       if (!this.hasGameStarted) return;
       if (document.pointerLockElement === canvas) return;
+      if (this.player && this.player.isModalOpen) return;
       if (this.craftingUI && this.craftingUI.isOpen) return;
+      if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
       if (!this.devPanel.classList.contains('hidden')) return;
 
       const target = e.target as HTMLElement;
@@ -1102,6 +1106,7 @@ class GameApp {
         target.closest('#top-bar') ||
         target.closest('#hotbar') ||
         target.closest('#crafting-modal') ||
+        target.closest('#chest-modal') ||
         target.closest('#dev-panel') ||
         target.closest('#click-to-play') ||
         target.closest('#player-list-modal') ||
@@ -2464,7 +2469,7 @@ class GameApp {
     if (document.pointerLockElement) {
       document.exitPointerLock();
     }
-    this.player.isModalOpen = true;
+    this.player.setModalOpen(true);
     this.chestManager.currentOpenChestKey = chestKey;
     this.chestModal.classList.remove('hidden');
     this.renderChestSlots();
@@ -2473,7 +2478,7 @@ class GameApp {
   public closeChestModal(): void {
     this.chestModal.classList.add('hidden');
     this.chestManager.currentOpenChestKey = null;
-    this.player.isModalOpen = false;
+    this.player.setModalOpen(false);
     this.updatePlayerSelectedItem();
     this.requestPointerLockSafely();
   }
