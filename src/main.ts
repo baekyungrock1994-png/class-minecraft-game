@@ -62,6 +62,7 @@ class GameApp {
   private playerListAdminNotice: HTMLElement;
   private playerRosterContainer: HTMLElement;
   private currentPlayers: PlayerNetworkData[] = [];
+  private lastRosterHash: string = '';
 
   // 교사 승인 및 대기열 요소
   private pendingRequests: JoinRequestData[] = [];
@@ -413,8 +414,10 @@ class GameApp {
 
   /**
    * 월드 전환 (평지 마을 <-> 개발도상국 자원구역)
+   * @param target 이동할 월드 타입 ('town' | 'resource')
+   * @param spawnMode 소환 위치 모드 ('portal': 제단 관문 바로 앞 소환 / 'plot': 개인 대지 중심 소환)
    */
-  public switchWorld(target: WorldType): void {
+  public switchWorld(target: WorldType, spawnMode: 'portal' | 'plot' = 'portal'): void {
     if (this.world.currentWorldType === target) return;
 
     this.world.switchWorld(target);
@@ -430,8 +433,13 @@ class GameApp {
       this.currentZoneLabelEl.textContent = '마을 평지 (주거지)';
       this.showNotification('🏡 평지 마을로 이동했습니다! 나만의 10x10 대지에 집을 지어보세요.', '✨');
 
-      // 플레이어를 자신의 대지로 텔레포트
-      this.teleportToMyPlot();
+      if (spawnMode === 'portal') {
+        // [지시사항 1]: 제단 관문 이동 시에는 자기 구역이 아닌 "마을 제단 관문 바로 앞(x: 0.5, z: 2.0)"에 소환!
+        this.teleportToTownPortalFront();
+      } else {
+        // [ 키 또는 귀환석을 사용한 경우에만 개인 대지 중심으로 이동
+        this.teleportToMyPlot();
+      }
     } else {
       btnResource.classList.add('active');
       btnTown.classList.remove('active');
@@ -439,17 +447,34 @@ class GameApp {
       this.currentZoneLabelEl.textContent = '자원 구역 (개발도상국)';
       this.showNotification('⛏️ 자원 구역(개발도상국)으로 이동했습니다! [ 키 또는 9번 귀환석으로 언제든 귀환 가능합니다.', '🌲');
 
-      // 자원 월드 스폰 위치로 텔레포트
-      this.teleportToResourceWorld();
+      // [지시사항 1]: 자원 구역 제단 관문 바로 앞(x: 0.5, z: -1.8)에 소환!
+      this.teleportToResourcePortalFront();
     }
 
-    // [수정사항 1]: 월드 전환 시 마우스 포인터 락 안전하게 유지/복구 (로딩 멈춤 느낌 원천 해결)
     this.requestPointerLockSafely();
+  }
+
+  /**
+   * 마을 중앙 신성한 제단 관문 바로 앞(x: 0.5, z: 2.0)으로 정확하게 소환
+   */
+  public teleportToTownPortalFront(): void {
+    // 마을 제단 기단 Y=5, 바닥 위 안전한 지상 높이(5.0 + 1.0 + playerHeight + 0.1)
+    const spawnY = 5.0 + 1.0 + this.player.playerHeight + 0.1;
+    this.player.teleport(0.5, spawnY, 2.0);
+  }
+
+  /**
+   * 개발도상국(자원 구역) 신성한 제단 관문 바로 앞(x: 0.5, z: -1.8)으로 정확하게 소환
+   */
+  public teleportToResourcePortalFront(): void {
+    const rp = this.world.resourceReturnPortal;
+    const baseGroundY = rp ? rp.y : 5;
+    const spawnY = baseGroundY + 1.0 + this.player.playerHeight + 0.1;
+    this.player.teleport(0.5, spawnY, -1.8);
   }
 
   private teleportToMyPlot(): void {
     const plot = this.world.plots.find(p => p.id === this.player.assignedPlotIndex);
-    // plot이 없거나 교사인 경우 중앙 신성한 제단 앞 안전 지대 (x: 0.5, z: 3.5)로 스폰
     const tx = plot ? plot.centerX : 0;
     const tz = plot ? plot.centerZ : 3.0;
     const ix = Math.floor(tx);
@@ -462,18 +487,6 @@ class GameApp {
       }
     }
     this.player.teleport(tx + 0.5, highestY + 1.0 + this.player.playerHeight + 0.1, tz + 0.5);
-  }
-
-  private teleportToResourceWorld(): void {
-    let groundY = 5;
-    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
-      const b = this.world.getBlock(0, y, 0);
-      if (b !== BlockType.AIR && b !== BlockType.LEAF) {
-        groundY = y;
-        break;
-      }
-    }
-    this.player.teleport(0.5, groundY + 1.0 + this.player.playerHeight + 0.1, 0.5);
   }
 
   /**
@@ -1571,32 +1584,29 @@ class GameApp {
     const pz = this.player.position.z;
 
     if (this.world.currentWorldType === 'town') {
-      // 평지 마을 -> 자원 구역(개발도상국) 이동 문 검사
+      // 평지 마을 -> 자원 구역(개발도상국) 이동 문 검사 (가로 2칸 문: x: 0~1 통로)
       for (const portal of this.world.townPortals) {
-        const dx = px - portal.x;
-        const dz = pz - portal.z;
-        const distSq = dx * dx + dz * dz;
+        const dx = Math.abs(px - portal.x);
+        const dz = Math.abs(pz - portal.z);
 
-        // 문 프레임 안(반경 1.3블록)으로 걸어 들어오면 이동!
-        if (distSq < 1.5 && Math.abs(py - (portal.y + 1)) < 2.4) {
+        // 2칸 너비 문 통과 시 (dx <= 1.2, dz <= 0.8, 높이 범위 충족)
+        if (dx <= 1.2 && dz <= 0.8 && Math.abs(py - (portal.y + 1.2)) < 2.5) {
           this.portalCooldown = 4.0;
-          this.switchWorld('resource');
-          this.showNotification(`🚪 [${portal.name}]을 통과하여 자원 구역(개발도상국)에 도착했습니다!`, '🌀');
+          this.switchWorld('resource', 'portal');
+          this.showNotification(`🚪 [${portal.name}]을 통과하여 자원 구역(개발도상국) 제단 앞에 도착했습니다!`, '🌀');
           break;
         }
       }
     } else {
-      // 개발도상국(자원 구역) -> 평지 마을 귀환 문 검사
+      // 개발도상국(자원 구역) -> 평지 마을 귀환 문 검사 (가로 2칸 문: x: 0~1 통로)
       const rp = this.world.resourceReturnPortal;
-      const dx = px - rp.x;
-      const dz = pz - rp.z;
-      const distSq = dx * dx + dz * dz;
+      const dx = Math.abs(px - rp.x);
+      const dz = Math.abs(pz - rp.z);
 
-      // 귀환 문 통과 시 (반경 1.8블록, 높이 2.8블록 이내)
-      if (distSq < 2.0 && Math.abs(py - (rp.y + 1.2)) < 2.6) {
+      if (dx <= 1.2 && dz <= 0.8 && Math.abs(py - (rp.y + 1.2)) < 2.5) {
         this.portalCooldown = 4.0;
-        this.switchWorld('town');
-        this.showNotification(`🚪 신성한 마을 귀환 문을 통과하여 마을로 복귀했습니다!`, '🏡');
+        this.switchWorld('town', 'portal');
+        this.showNotification(`🚪 신성한 마을 귀환 문을 통과하여 마을 제단 앞에 복귀했습니다!`, '🏡');
         this.requestPointerLockSafely();
       }
     }
@@ -1677,11 +1687,11 @@ class GameApp {
 
     const isTeacher = this.networkManager.role === 'teacher';
     this.playerListAdminNotice.textContent = isTeacher
-      ? '👑 교사 관리자 모드: 학생 닉네임 강제 수정 및 외부인/문제 학생을 즉시 강제 추방할 수 있습니다.'
+      ? '👑 교사 관리자 모드: 학생 대지(구역 1~16) 임의 재배정, 닉네임 수정 및 외부인/문제 학생 강제 추방 권한이 부여되었습니다.'
       : '👥 현재 우리 반 마을에 참여 중인 친구들의 명단입니다.';
 
     this.renderPendingRequests();
-    this.renderPlayerRoster();
+    this.renderPlayerRoster(true);
   }
 
   private closePlayerListModal(): void {
@@ -1817,9 +1827,17 @@ class GameApp {
   /**
    * 참여자 명단 렌더링 (닉네임 강제 변경 및 강제 추방 버튼 제공)
    */
-  private renderPlayerRoster(): void {
-    this.playerRosterContainer.innerHTML = '';
+  private renderPlayerRoster(force: boolean = false): void {
     const isTeacher = this.networkManager.role === 'teacher';
+    const currentHash = this.currentPlayers.map(p => `${p.uid}:${p.name}:${p.plotId}:${p.role}:${p.currentWorld}`).join('|') + `|${isTeacher}`;
+
+    // 불필요한 DOM 재생성을 방지하여 버튼 클릭이 도중에 씹히거나 더블클릭해야 하는 현상 원천 해결
+    if (!force && this.lastRosterHash === currentHash && this.playerRosterContainer.children.length > 0) {
+      return;
+    }
+    this.lastRosterHash = currentHash;
+
+    this.playerRosterContainer.innerHTML = '';
 
     if (this.currentPlayers.length === 0) {
       this.playerRosterContainer.innerHTML = '<div class="empty-roster-msg">현재 접속 중인 플레이어가 없습니다.</div>';
@@ -1872,52 +1890,62 @@ class GameApp {
       left.appendChild(info);
       card.appendChild(left);
 
-      // 교사(관리자)에게만 학생 닉네임 강제 변경 및 강제 추방 버튼 제공
+      // 교사(관리자)에게만 학생 구역 변경, 닉네임 변경 및 강제 추방 버튼 제공
       if (isTeacher && p.role === 'student') {
         const right = document.createElement('div');
         right.className = 'player-roster-right';
 
-        // 1. 대지(구역) 변경 버튼 (선생님 권한)
+        // 1. [지시사항 2]: 관리자가 학생이 할당받은 구역을 임의로 즉시 변경
         const reassignBtn = document.createElement('button');
         reassignBtn.className = 'roster-plot-btn';
+        reassignBtn.type = 'button';
         reassignBtn.innerHTML = `🏠 대지(#${p.plotId}) 변경`;
-        reassignBtn.title = '이 학생의 할당 구역(대지 번호 1~16)을 즉시 변경합니다';
+        reassignBtn.title = '이 학생의 할당 구역(대지 번호 1~16)을 즉시 임의 변경합니다';
         reassignBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          e.preventDefault();
           const input = prompt(`[${p.name}] 학생에게 새로 배정할 대지 번호(1~16)를 입력하세요:`, p.plotId?.toString() || '1');
           if (input !== null) {
             const plotNum = parseInt(input.trim(), 10);
             if (!isNaN(plotNum) && plotNum >= 1 && plotNum <= 16) {
+              p.plotId = plotNum;
               await this.networkManager.reassignStudentPlot(p.uid, p.name, plotNum);
               this.showNotification(`[${p.name}] 학생의 대지를 [#${plotNum}번]으로 재배치했습니다.`, '🏠');
+              this.renderPlayerRoster(true);
             } else {
               alert('대지 번호는 1부터 16 사이의 숫자여야 합니다.');
             }
           }
         });
 
-        // 2. 닉네임 변경 버튼
+        // 2. [지시사항 3]: 관리자가 학생 닉네임 변경 시 한 번만 눌러도 즉시 변경되도록 개선
         const renameBtn = document.createElement('button');
         renameBtn.className = 'roster-rename-btn';
+        renameBtn.type = 'button';
         renameBtn.innerHTML = '✏️ 닉네임 변경';
         renameBtn.title = '이 학생의 닉네임을 변경합니다';
-        renameBtn.addEventListener('click', (e) => {
+        renameBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          e.preventDefault();
           const newName = prompt(`[${p.name}] 학생의 새로운 닉네임을 입력하세요:`, p.name);
           if (newName && newName.trim() && newName.trim() !== p.name) {
             const clean = newName.trim();
-            this.networkManager.changePlayerName(p.uid, clean);
+            p.name = clean;
+            await this.networkManager.changePlayerName(p.uid, clean);
             this.showNotification(`[${p.name}] 학생의 닉네임을 [${clean}](으)로 변경했습니다.`, '✏️');
+            this.renderPlayerRoster(true);
           }
         });
 
         // 3. 강제 추방(Kick) 버튼
         const kickBtn = document.createElement('button');
         kickBtn.className = 'roster-kick-btn';
+        kickBtn.type = 'button';
         kickBtn.innerHTML = '🚫 추방';
         kickBtn.title = '이 학생(또는 외부인)을 교실 마을에서 강제 추방합니다';
         kickBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          e.preventDefault();
           const confirmed = confirm(
             `[${p.name}] 학생(또는 외부인)을 교실 마을에서 강제 추방하시겠습니까?\n\n※ 추방된 사용자는 즉시 퇴장 처리되며, 다시 방에 참가할 수 없습니다.`
           );
@@ -1927,6 +1955,7 @@ class GameApp {
           }
         });
 
+        right.appendChild(reassignBtn);
         right.appendChild(renameBtn);
         right.appendChild(kickBtn);
         card.appendChild(right);

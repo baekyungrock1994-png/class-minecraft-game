@@ -468,33 +468,47 @@ export class VoxelWorld {
       }
     }
 
-    // 신성한 차원문 아치 기둥 (돌 & 마그마 룬)
+    // 신성한 차원문 아치 기둥 (가운데 뚫린 부분이 2칸인 웅장한 대문)
+    // 좌우 기둥: x = -1, x = 2 / 뚫린 통로: x = 0, x = 1 (가로 2블록 완벽 개방)
     const pillarPositions = [
       { x: -1, z: 0 },
-      { x: 1, z: 0 },
+      { x: 2, z: 0 },
     ];
     for (const p of pillarPositions) {
       this.townBlocks.set(this.getKey(p.x, 5, p.z), BlockType.STONE);
       this.townBlocks.set(this.getKey(p.x, 6, p.z), BlockType.MAGMA); // 빛나는 차원 룬
-      this.townBlocks.set(this.getKey(p.x, 7, p.z), BlockType.STONE);
+      this.townBlocks.set(this.getKey(p.x, 7, p.z), BlockType.MAGMA);
+      this.townBlocks.set(this.getKey(p.x, 8, p.z), BlockType.STONE);
     }
-    // 상단 아치 & 발판
-    this.townBlocks.set(this.getKey(0, 7, 0), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(0, 5, 0), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(0, 6, 0), BlockType.AIR);
 
-    // 모서리 장식 기둥 (x: +-2, z: +-2)
+    // 가운데 2칸 문 통로 (x: 0, 1) - 상단 아치 & 바닥 발판 & 통과 공간 2x2 에어
+    for (let x = 0; x <= 1; x++) {
+      this.townBlocks.set(this.getKey(x, 5, 0), BlockType.PLANK); // 바닥 발판
+      this.townBlocks.set(this.getKey(x, 6, 0), BlockType.AIR);   // 통과 공간 하단
+      this.townBlocks.set(this.getKey(x, 7, 0), BlockType.AIR);   // 통과 공간 상단
+      this.townBlocks.set(this.getKey(x, 8, 0), BlockType.STONE); // 상단 아치
+      this.townBlocks.set(this.getKey(x, 9, 0), BlockType.PLANK); // 장식 지붕
+
+      // 문 앞뒤 보행 통로 확보 (z: -1, 1)
+      for (const z of [-1, 1]) {
+        this.townBlocks.set(this.getKey(x, 6, z), BlockType.AIR);
+        this.townBlocks.set(this.getKey(x, 7, z), BlockType.AIR);
+      }
+    }
+
+    // 모서리 장식 기둥
     const corners = [
-      { x: -2, z: -2 }, { x: 2, z: -2 },
-      { x: -2, z: 2 }, { x: 2, z: 2 }
+      { x: -2, z: -2 }, { x: 3, z: -2 },
+      { x: -2, z: 2 }, { x: 3, z: 2 }
     ];
     for (const c of corners) {
       this.townBlocks.set(this.getKey(c.x, 5, c.z), BlockType.STONE);
       this.townBlocks.set(this.getKey(c.x, 6, c.z), BlockType.PLANK);
     }
 
+    // 포탈 중심 좌표 (x: 0.5, y: 5, z: 0)
     this.townPortals = [
-      { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0.5 }
+      { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0 }
     ];
   }
 
@@ -578,28 +592,39 @@ export class VoxelWorld {
       }
     }
 
-    // 포탈 게이트 입구 공간 정리 (내부 2칸 비우기)
-    this.resourceBlocks.set(this.getKey(rx, returnGroundY + 1, rz), BlockType.AIR);
-    this.resourceBlocks.set(this.getKey(rx, returnGroundY + 2, rz), BlockType.AIR);
+    // 신성한 마을 복귀 제단 대문 (2칸 문 통로: x: 0, 1 / 기둥: x: -1, 2)
+    // 좌우 기둥 (단단한 석재 및 마그마 룬)
+    const resPillars = [
+      { x: rx - 1, z: rz },
+      { x: rx + 2, z: rz }
+    ];
+    for (const p of resPillars) {
+      this.resourceBlocks.set(this.getKey(p.x, returnGroundY + 1, p.z), BlockType.STONE);
+      this.resourceBlocks.set(this.getKey(p.x, returnGroundY + 2, p.z), BlockType.MAGMA);
+      this.resourceBlocks.set(this.getKey(p.x, returnGroundY + 3, p.z), BlockType.MAGMA);
+      this.resourceBlocks.set(this.getKey(p.x, returnGroundY + 4, p.z), BlockType.STONE);
+    }
 
-    // 좌우 기둥 3칸 (단단한 석재 및 마그마 룬)
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 1, rz), BlockType.STONE);
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 2, rz), BlockType.MAGMA);
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 3, rz), BlockType.STONE);
+    // 가운데 2칸 문 통로 (x: 0, 1) - 상단 아치 & 바닥 발판 & 통과 공간 2x2 에어
+    for (let x = rx; x <= rx + 1; x++) {
+      this.resourceBlocks.set(this.getKey(x, returnGroundY, rz), BlockType.PLANK);
+      this.resourceBlocks.set(this.getKey(x, returnGroundY + 1, rz), BlockType.AIR);
+      this.resourceBlocks.set(this.getKey(x, returnGroundY + 2, rz), BlockType.AIR);
+      this.resourceBlocks.set(this.getKey(x, returnGroundY + 3, rz), BlockType.AIR);
+      this.resourceBlocks.set(this.getKey(x, returnGroundY + 4, rz), BlockType.STONE);
 
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 1, rz), BlockType.STONE);
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 2, rz), BlockType.MAGMA);
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 3, rz), BlockType.STONE);
-
-    // 상단 아치 & 발판
-    this.resourceBlocks.set(this.getKey(rx, returnGroundY + 3, rz), BlockType.PLANK);
-    this.resourceBlocks.set(this.getKey(rx, returnGroundY, rz), BlockType.PLANK);
+      // 앞뒤 보행 통로 확보 (rz - 1, rz + 1)
+      for (const z of [rz - 1, rz + 1]) {
+        this.resourceBlocks.set(this.getKey(x, returnGroundY + 1, z), BlockType.AIR);
+        this.resourceBlocks.set(this.getKey(x, returnGroundY + 2, z), BlockType.AIR);
+      }
+    }
 
     this.resourceReturnPortal = {
       name: '신성한 마을 복귀 문',
       x: rx + 0.5,
       y: returnGroundY,
-      z: rz + 0.5,
+      z: rz,
     };
   }
 
