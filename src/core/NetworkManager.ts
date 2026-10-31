@@ -99,6 +99,7 @@ export class NetworkManager {
   public onMyNameChanged?: (newName: string) => void;
   public onMyPlotChanged?: (newPlotId: number) => void;
   public onDisasterChange?: (isActive: boolean) => void;
+  public onWaterLevelChange?: (level: number) => void;
   public onPendingRequestsUpdate?: (requests: JoinRequestData[]) => void;
   public onJoinApproved?: (plotId: number) => void;
   public onJoinRejected?: () => void;
@@ -739,6 +740,18 @@ export class NetworkManager {
         }
       }
     });
+
+    // 9. [모든 플레이어] 교사가 수동 조절한 해수면 수위 실시간 동기화
+    const waterLevelRef = ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`);
+    onValue(waterLevelRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.val();
+      if (data && typeof data.level === 'number') {
+        if (this.onWaterLevelChange) {
+          this.onWaterLevelChange(data.level);
+        }
+      }
+    });
   }
 
   private handleIncomingBlockDelta(snap: DataSnapshot): void {
@@ -1039,6 +1052,18 @@ export class NetworkManager {
     const disasterRef = ref(this.db, `rooms/${this.roomCode}/gameState/disaster`);
     await set(disasterRef, {
       isActive,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * [지시사항 2]: 교사용 수동 조절 해수면 수위 실시간 전송 (학생 화면에도 즉시 동기화)
+   */
+  public async sendWaterLevel(level: number): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+    const waterLevelRef = ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`);
+    await set(waterLevelRef, {
+      level: Number(level.toFixed(1)),
       timestamp: Date.now()
     });
   }

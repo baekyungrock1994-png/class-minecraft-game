@@ -657,10 +657,11 @@ class GameApp {
 
     this.waterHeightSlider.addEventListener('input', () => {
       const val = parseFloat(this.waterHeightSlider.value);
-      this.targetWaterY = val;
-      this.world.disasterWaterLevel = val;
-      this.world.disasterWaterMesh.visible = true;
-      this.waterHeightVal.textContent = `Y = ${val.toFixed(1)}${val >= 4 ? ' (침수 중)' : ''}`;
+      this.applyWaterLevelLocally(val);
+      // 교사가 수동으로 해수면 높이를 조절하면 학생 화면에도 실시간 브로드캐스트!
+      if (this.networkManager && this.networkManager.role === 'teacher') {
+        this.networkManager.sendWaterLevel(val);
+      }
     });
 
     // 4. 개발자 비행(플라이) 모드 토글 버튼
@@ -669,6 +670,21 @@ class GameApp {
         e.stopPropagation();
         this.toggleFlyMode();
       });
+    }
+  }
+
+  /**
+   * [지시사항 2]: 해수면 수위를 로컬에 적용 (수동 슬라이더 및 원격 교사 조작 수신 공통)
+   */
+  public applyWaterLevelLocally(val: number): void {
+    this.targetWaterY = val;
+    this.world.disasterWaterLevel = val;
+    this.world.disasterWaterMesh.visible = val > 1.2 || this.isDisasterActive;
+    if (this.waterHeightVal) {
+      this.waterHeightVal.textContent = `Y = ${val.toFixed(1)}${val >= 4 ? ' (침수 중)' : ''}`;
+    }
+    if (this.waterHeightSlider) {
+      this.waterHeightSlider.value = val.toFixed(1);
     }
   }
 
@@ -717,6 +733,7 @@ class GameApp {
     // 교사가 발동한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(true);
+      this.networkManager.sendWaterLevel(this.targetWaterY);
     }
   }
 
@@ -745,6 +762,7 @@ class GameApp {
     // 교사가 리셋한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(false);
+      this.networkManager.sendWaterLevel(1.0);
     }
   }
 
@@ -1195,6 +1213,11 @@ class GameApp {
       } else {
         this.applyPeaceLocally();
       }
+    };
+
+    // 5-3. [지시사항 2]: 교사가 수동 조절한 해수면 높이 실시간 수신 (학생 화면에도 즉시 동기화)
+    this.networkManager.onWaterLevelChange = (level: number) => {
+      this.applyWaterLevelLocally(level);
     };
 
     // 6. 긍정적 멘트 실시간 채팅 수신

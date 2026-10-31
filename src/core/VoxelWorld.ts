@@ -220,10 +220,12 @@ export class VoxelWorld {
     const block = this.getBlock(ix, iy, iz);
     if (block === BlockType.WATER) return true;
 
-    // 2. 평지 마을 (town): 평화 상태에서는 100% 마른 땅 (지하를 파도 절대 물로 인식하지 않음)
+    // 2. 평지 마을 (town): 해수면 수위가 바닥보다 높게 올라온 경우 (수동 조절 및 대재앙 포함)
     if (this.currentWorldType === 'town') {
-      if (!this.isDisasterActive) return false;
-      return y < this.disasterWaterLevel;
+      if (this.disasterWaterLevel > 1.2) {
+        return y < this.disasterWaterLevel;
+      }
+      return false;
     }
 
     // 3. 자원 구역 (resource):

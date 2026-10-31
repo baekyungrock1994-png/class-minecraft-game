@@ -569,7 +569,7 @@ export class PlayerController {
       this.onGround = false;
     } else if (isWater) {
       // [물속 3D 자유 유영 물리]: 아래를 보며 W를 누르면 아래로 잠수, 위를 보면 위로 상승!
-      const swimSpeed = 5.5;
+      const swimSpeed = 6.0;
       if (this.keys.KeyW) moveDir.add(lookDir);
       if (this.keys.KeyS) moveDir.sub(lookDir);
       if (this.keys.KeyA) moveDir.sub(right);
@@ -586,12 +586,25 @@ export class PlayerController {
         this.velocity.z *= 0.8;
       }
 
-      // 스페이스바로 위로 솟구치기
+      // [버그 수정 1]: 물 표면 근처에서 점프(Space)를 누르면 물 밖 블록/육지로 뛰어오르는 강력한 수면 도약!
+      const isHeadNearWaterSurface = !this.world.isPositionInWater(this.position.x, this.position.y - 0.3, this.position.z);
       if (this.keys.Space) {
-        this.velocity.y = 4.0;
+        if (isHeadNearWaterSurface) {
+          // 수면에서 점프 시 지상 점프 수준으로 물을 박차고 육지로 솟구침
+          this.velocity.y = 8.2;
+        } else {
+          // 깊은 물속에서는 빠른 상승 유영
+          this.velocity.y = 6.5;
+        }
       }
-      // 물속 아주 미세한 가라앉음
-      this.velocity.y -= 2.0 * delta;
+
+      // 수면 근처 자연스러운 부력 (가라앉지 않고 머리를 수면 위로 띄움)
+      if (isHeadNearWaterSurface && this.velocity.y < 0) {
+        this.velocity.y += 4.0 * delta;
+      } else {
+        // 깊은 물속 미세한 침강
+        this.velocity.y -= 1.5 * delta;
+      }
     } else {
       // [지상 보행 물리]
       const moveSpeed = 7.5;
@@ -650,26 +663,69 @@ export class PlayerController {
       this.onGround = false;
     }
 
-    // X축 이동 & 월드 바깥 낭떠러지 낙하 방지
+    // [버그 수정 1]: X, Z축 이동 시 1블록 높이 턱을 부드럽게 타고 오르는 Step-Up(오토 클라이밍) 적용!
+    // 물속에서 블록 위로 올라가거나, 지상에서 1단 블록 턱을 오를 때 걸림 없이 매끄럽게 통과
     const limit = Math.floor(WORLD_SIZE / 2) - 2;
-    this.position.x += this.velocity.x * delta;
-    if (this.checkCollision()) {
-      this.position.x -= this.velocity.x * delta;
-      this.velocity.x = 0;
-    }
+    this.moveAxisWithStepUp('x', this.velocity.x * delta);
     this.position.x = Math.max(-limit, Math.min(limit, this.position.x));
 
-    // Z축 이동 & 월드 바깥 낭떠러지 낙하 방지
-    this.position.z += this.velocity.z * delta;
-    if (this.checkCollision()) {
-      this.position.z -= this.velocity.z * delta;
-      this.velocity.z = 0;
-    }
+    this.moveAxisWithStepUp('z', this.velocity.z * delta);
     this.position.z = Math.max(-limit, Math.min(limit, this.position.z));
 
     // 혹시라도 버그로 지하 바닥 아래로 뚫린 경우에만 리스폰
     if (this.position.y < -3) {
       this.spawnOnGround();
+    }
+  }
+
+  /**
+   * [버그 수정 1]: 1블록 턱 자동 오르기 (Step-Up / Auto-Jump)
+   * 물속에서 블록 벽을 만나거나 지상에서 1블록 턱을 만났을 때,
+   * 머리 위 공간이 비어있으면 1.10블록 턱 위로 자연스럽게 올라서도록 처리
+   */
+  private moveAxisWithStepUp(axis: 'x' | 'z', deltaVal: number): void {
+    if (Math.abs(deltaVal) < 1e-6) return;
+
+    const origPos = this.position[axis];
+    const origY = this.position.y;
+    this.position[axis] += deltaVal;
+
+    if (!this.checkCollision()) {
+      return; // 장애물 없이 정상 이동 완료
+    }
+
+    // 수평 이동 시 충돌 발생 -> Step-Up (최대 1.10블록 높이 턱 승강) 시도!
+    this.position[axis] = origPos; // 일단 제자리 복귀
+
+    const maxStep = 1.10;
+    const stepInterval = 0.1;
+    let success = false;
+
+    for (let h = stepInterval; h <= maxStep + 0.01; h += stepInterval) {
+      this.position.y = origY + h;
+      this.position[axis] = origPos + deltaVal;
+
+      if (!this.checkCollision()) {
+        // 턱 위 공간으로 성공적으로 진입!
+        success = true;
+        // 남은 틈새만큼 아래로 살짝 안착시켜 붕 뜨지 않게 정렬
+        for (let down = 0.05; down < h; down += 0.05) {
+          this.position.y = origY + h - down;
+          if (this.checkCollision()) {
+            this.position.y = origY + h - down + 0.05;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (!success) {
+      // 2블록 이상의 높은 벽이거나 천장이 막힌 경우 -> 원위치 복원 및 속도 0
+      this.position.y = origY;
+      this.position[axis] = origPos;
+      if (axis === 'x') this.velocity.x = 0;
+      else this.velocity.z = 0;
     }
   }
 
