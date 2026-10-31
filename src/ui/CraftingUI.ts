@@ -72,6 +72,20 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 4 },
     result: { type: 'block', blockType: BlockType.CRAFTING_TABLE, count: 1, name: '조합대', emoji: '🪑' }
   },
+  // 3-1. [수정사항 2]: 보관 상자 (가공목재 8개 -> 10칸 보관함 1개)
+  {
+    id: 'chest',
+    name: '보관 상자 (10칸)',
+    emoji: '📦',
+    description: '가공 목재 8개로 내 집에 10칸 아이템 보관함 제작',
+    grid: [
+      'PLANK', 'PLANK', 'PLANK',
+      'PLANK', null, 'PLANK',
+      'PLANK', 'PLANK', 'PLANK'
+    ],
+    cost: { plank: 8 },
+    result: { type: 'block', blockType: BlockType.CHEST, count: 1, name: '보관 상자', emoji: '📦' }
+  },
   // 4. 나무 곡괭이 (목재 3 + 막대기 2)
   {
     id: 'wood_pickaxe',
@@ -170,6 +184,7 @@ export class CraftingUI {
   public isOpen: boolean = false;
   public onCraftSuccess?: (msg: string) => void;
   public onClose?: () => void;
+  public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK'; toolType?: ToolType; count: number }) => void;
 
   constructor(hotbar: HotbarUI) {
     this.hotbar = hotbar;
@@ -392,12 +407,22 @@ export class CraftingUI {
     if (r.cost.stick) this.hotbar.consumeItem('STICK', r.cost.stick);
 
     // 2. 결과물 지급
+    let added = false;
     if (r.result.type === 'tool' && r.result.toolType) {
-      this.hotbar.addTool(r.result.toolType);
+      added = this.hotbar.addTool(r.result.toolType);
+      if (!added && this.onItemDrop) {
+        this.onItemDrop({ type: 'tool', toolType: r.result.toolType, count: 1 });
+      }
     } else if (r.result.type === 'block' && r.result.blockType !== undefined) {
-      this.hotbar.addResource(r.result.blockType, r.result.count);
+      added = this.hotbar.addResource(r.result.blockType, r.result.count);
+      if (!added && this.onItemDrop) {
+        this.onItemDrop({ type: 'block', blockType: r.result.blockType, count: r.result.count });
+      }
     } else if (r.result.type === 'item' && r.result.itemType) {
-      this.hotbar.addItem(r.result.itemType, r.result.count);
+      added = this.hotbar.addItem(r.result.itemType, r.result.count);
+      if (!added && this.onItemDrop) {
+        this.onItemDrop({ type: 'item', itemType: r.result.itemType, count: r.result.count });
+      }
     }
 
     // 3. UI 갱신
@@ -405,7 +430,11 @@ export class CraftingUI {
     this.updateResultSlot();
 
     if (this.onCraftSuccess) {
-      this.onCraftSuccess(`🎉 [제작 성공] ${r.result.name} (${r.result.count}개)을(를) 제작했습니다!`);
+      if (added) {
+        this.onCraftSuccess(`🎉 [제작 성공] ${r.result.name} (${r.result.count}개)을(를) 인벤토리에 넣었습니다!`);
+      } else {
+        this.onCraftSuccess(`🎒 가방이 가득 차 [${r.result.name}]이(가) 주변 바닥에 떨어졌습니다!`);
+      }
     }
   }
 }

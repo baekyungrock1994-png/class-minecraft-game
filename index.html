@@ -450,6 +450,47 @@
     </div>
   </div>
 
+  <!-- [수정사항 2]: 10칸 보관 상자 모달 -->
+  <div id="chest-modal" class="modal-backdrop hidden">
+    <div class="chest-card">
+      <div class="chest-header">
+        <div class="chest-title">
+          <span class="chest-icon">📦</span>
+          <h3>내 집 보관 상자 (10칸)</h3>
+        </div>
+        <button id="btn-close-chest" class="close-btn" title="닫기 (ESC)">✕</button>
+      </div>
+
+      <div class="chest-body">
+        <div class="chest-section">
+          <div class="chest-section-title">
+            <span>📦 상자 보관함 (10칸)</span>
+            <span class="chest-sub-hint">클릭하면 내 가방으로 인출합니다</span>
+          </div>
+          <div id="chest-grid" class="chest-grid">
+            <!-- 10개 슬롯 (2x5 그리드) JS 동적 생성 -->
+          </div>
+        </div>
+
+        <div class="chest-divider"></div>
+
+        <div class="chest-section">
+          <div class="chest-section-title">
+            <span>🎒 내 핫바 인벤토리</span>
+            <span class="chest-sub-hint">클릭하면 상자에 보관합니다</span>
+          </div>
+          <div id="chest-hotbar-grid" class="chest-hotbar-grid">
+            <!-- 9개 핫바 슬롯 JS 동적 생성 -->
+          </div>
+        </div>
+      </div>
+
+      <div class="chest-footer">
+        <span class="chest-tip">💡 슬롯을 클릭하면 상자와 핫바 사이에 아이템을 자유롭게 보관하거나 꺼낼 수 있습니다.</span>
+      </div>
+    </div>
+  </div>
+
   <!-- 게임 시작 / 방 생성 및 참가 모달 오버레이 (2단계 구조) -->
   <div id="click-to-play" class="modal-backdrop">
     <div class="modal-card auth-card">

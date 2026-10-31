@@ -9,6 +9,7 @@ export enum BlockType {
   CRAFTING_TABLE = 7,
   WATER = 8,
   MAGMA = 9,
+  CHEST = 10,
 }
 
 // 아이템 전용 (인벤토리 및 조합 재료)
@@ -108,6 +109,13 @@ export const BLOCK_METAS: Record<BlockType, BlockMeta> = {
     color: 0xe11d48,
     iconBg: "linear-gradient(135deg, #e11d48, #f97316)",
     emoji: "🔥",
+  },
+  [BlockType.CHEST]: {
+    id: BlockType.CHEST,
+    name: "보관 상자",
+    color: 0xa16207,
+    iconBg: "linear-gradient(135deg, #a16207, #78350f)",
+    emoji: "📦",
   },
 };
 
@@ -229,6 +237,7 @@ export const BLOCK_BREAK_TIMES: Record<BlockType, number> = {
   [BlockType.CRAFTING_TABLE]: 1.5,
   [BlockType.WATER]: Infinity,
   [BlockType.MAGMA]: 3.0,
+  [BlockType.CHEST]: 1.5,
 };
 
 // 월드 기본 규격
@@ -242,7 +251,7 @@ export const MAX_HP = 100;
 // 10x10 구획(Plot) 시스템 규격
 export const PLOT_SIZE = 10; // 구획 한 변 10칸
 export const PLOT_GRID_COUNT = 4; // 4x4 = 총 16개 구획
-export const ROAD_WIDTH = 2; // 구획 사이 도로 폭 2칸
+export const ROAD_WIDTH = 4; // [수정사항 4]: 구획 사이 도로 폭 4칸으로 확장 (시원하고 넓은 도로)
 
 export interface PlotInfo {
   id: number;

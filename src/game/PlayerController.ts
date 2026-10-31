@@ -73,6 +73,7 @@ export class PlayerController {
   public onPlayerDeath?: (reason: string) => void;
   public onNotify?: (msg: string, icon: string) => void;
   public onOpenCraftingTable?: () => void;
+  public onOpenChest?: (chestKey: string) => void;
   public onUseItem?: () => boolean; // 핫바 아이템(마을 귀환석 등) 우클릭 사용 콜백
 
   // 평화 모드 (PVP 원천 차단)
@@ -813,6 +814,13 @@ export class PlayerController {
     if (targetBlockType === BlockType.CRAFTING_TABLE) {
       if (this.onOpenCraftingTable) {
         this.onOpenCraftingTable();
+        return;
+      }
+    }
+    if (targetBlockType === BlockType.CHEST) {
+      if (this.onOpenChest) {
+        const chestKey = `${this.targetBlock.x}_${this.targetBlock.y}_${this.targetBlock.z}`;
+        this.onOpenChest(chestKey);
         return;
       }
     }

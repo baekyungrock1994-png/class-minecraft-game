@@ -135,6 +135,10 @@ export class NetworkManager {
     return cred.user;
   }
 
+  public getDb(): Database {
+    return this.db;
+  }
+
   /**
    * 1. [교사용] 5자리 랜덤 코드로 새로운 방 생성
    */

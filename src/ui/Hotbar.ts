@@ -19,20 +19,16 @@ export interface InventorySlot {
 export class HotbarUI {
   private container: HTMLElement;
   public slots: InventorySlot[] = [
-    // 1번: 기본 나무 도끼 (내구도 59)
-    { isTool: true, toolType: ToolType.WOOD_AXE, durability: 59, maxDurability: 59, count: 1 },
-    // 2~4번: 핵심 기본 3대 재료 (나무, 흙, 돌)
-    { blockType: BlockType.WOOD, count: 12 },
-    { blockType: BlockType.DIRT, count: 20 },
-    { blockType: BlockType.STONE, count: 10 },
-    // 5~7번: 파생 조합 재료 및 조합대
-    { blockType: BlockType.PLANK, count: 0 },
-    { isItem: true, itemType: 'STICK', itemName: '막대기', itemEmoji: '🥢', count: 0 },
-    { blockType: BlockType.CRAFTING_TABLE, count: 0 },
-    // 8번: 제작 도구 여유 슬롯
+    // [수정사항 3]: 처음에 기본 지급되는 아이템 완전 제거 -> 9칸 모두 빈 슬롯(맨몸 시작)
     { count: 0 },
-    // 9번: 마을 귀환석 (우클릭 또는 [ 키로 평지마을 즉시 귀환)
-    { isItem: true, itemType: 'RETURN_STONE', itemName: '마을 귀환석', itemEmoji: '🧭', count: 1 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
   ];
   public selectedIndex: number = 0;
   public onSelectChange?: (slot: InventorySlot) => void;
@@ -95,11 +91,25 @@ export class HotbarUI {
     return slot ? slot.count : 0;
   }
 
-  public addResource(type: BlockType, amount: number = 1): void {
-    let slot = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type);
+  /**
+   * 여유 공간이 있는지 확인 (스택 가능하거나 빈 슬롯이 있으면 true)
+   */
+  public hasSpaceFor(type: BlockType | 'STICK', amount: number = 1): boolean {
+    if (type === 'STICK') {
+      const existing = this.slots.find(s => s.isItem && s.itemType === 'STICK' && s.count + amount <= 64);
+      if (existing) return true;
+    } else {
+      const existing = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type && s.count + amount <= 64);
+      if (existing) return true;
+    }
+    return this.slots.some(s => s.count === 0 && !s.isTool && !s.isItem);
+  }
+
+  public addResource(type: BlockType, amount: number = 1): boolean {
+    let slot = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type && s.count < 64);
     if (!slot) {
       // 빈 슬롯 찾기
-      slot = this.slots.find(s => s.count === 0 && !s.isTool);
+      slot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
       if (slot) {
         slot.isTool = false;
         slot.isItem = false;
@@ -110,7 +120,9 @@ export class HotbarUI {
     if (slot) {
       slot.count += amount;
       this.render();
+      return true;
     }
+    return false; // 인벤토리 꽉 참
   }
 
   public consumeResource(type: BlockType, amount: number = 1): boolean {
@@ -123,10 +135,10 @@ export class HotbarUI {
     return false;
   }
 
-  public addItem(itemType: 'STICK', amount: number = 1): void {
-    let slot = this.slots.find(s => s.isItem && s.itemType === itemType);
+  public addItem(itemType: 'STICK', amount: number = 1): boolean {
+    let slot = this.slots.find(s => s.isItem && s.itemType === itemType && s.count < 64);
     if (!slot) {
-      slot = this.slots.find(s => s.count === 0 && !s.isTool);
+      slot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
       if (slot) {
         slot.isTool = false;
         slot.isItem = true;
@@ -139,7 +151,9 @@ export class HotbarUI {
     if (slot) {
       slot.count += amount;
       this.render();
+      return true;
     }
+    return false; // 인벤토리 꽉 참
   }
 
   public consumeItem(itemType: 'STICK', amount: number = 1): boolean {

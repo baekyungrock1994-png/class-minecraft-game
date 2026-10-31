@@ -3,8 +3,10 @@ import { VoxelWorld } from './core/VoxelWorld.ts';
 import { PlayerController, BlockInteractEvent } from './game/PlayerController.ts';
 import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
-import { BlockType, ToolType, WorldType, WORLD_HEIGHT } from './core/Constants.ts';
+import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS } from './core/Constants.ts';
 import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData } from './core/NetworkManager.ts';
+import { ItemDropManager } from './game/ItemDropManager.ts';
+import { ChestManager } from './game/ChestManager.ts';
 
 class GameApp {
   private scene: THREE.Scene;
@@ -18,6 +20,14 @@ class GameApp {
   private hotbar: HotbarUI;
   private craftingUI: CraftingUI;
   public networkManager: NetworkManager;
+  public itemDropManager: ItemDropManager;
+  public chestManager: ChestManager;
+
+  // 상자(보관함) 모달 요소
+  private chestModal: HTMLElement;
+  private chestGrid: HTMLElement;
+  private chestHotbarGrid: HTMLElement;
+  private btnCloseChest: HTMLElement;
 
   private clock: THREE.Clock = new THREE.Clock();
   private startModal: HTMLElement;
@@ -157,6 +167,12 @@ class GameApp {
     this.btnCloseQuickChat = document.getElementById('btn-close-quick-chat')!;
     this.chatMessagesContainer = document.getElementById('chat-messages-container')!;
 
+    // 상자(보관함) 모달 요소
+    this.chestModal = document.getElementById('chest-modal')!;
+    this.chestGrid = document.getElementById('chest-grid')!;
+    this.chestHotbarGrid = document.getElementById('chest-hotbar-grid')!;
+    this.btnCloseChest = document.getElementById('btn-close-chest')!;
+
     // 1. Three.js 기본 씬 & 카메라
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87ceeb); // 맑은 하늘색
@@ -218,6 +234,19 @@ class GameApp {
       this.showNotification(reason, '💀');
     };
 
+    // 5-1. 아이템 드롭 & 픽업 시스템
+    this.itemDropManager = new ItemDropManager(this.scene);
+    this.itemDropManager.onPickupNotice = (msg: string, icon: string) => {
+      this.showNotification(msg, icon);
+      this.updatePlayerSelectedItem();
+    };
+
+    // 5-2. 보관 상자 시스템
+    this.chestManager = new ChestManager();
+    this.player.onOpenChest = (chestKey: string) => {
+      this.openChestModal(chestKey);
+    };
+
     // 블록 인터랙션 (채굴 / 설치) 규칙 연결
     this.player.onBlockInteract = (event: BlockInteractEvent) => this.handleBlockInteract(event);
 
@@ -234,6 +263,14 @@ class GameApp {
     this.craftingUI.onCraftSuccess = (msg: string) => {
       this.showNotification(msg, '🛠️');
       this.updatePlayerSelectedItem();
+    };
+    this.craftingUI.onItemDrop = (data) => {
+      this.itemDropManager.spawnDropItem(
+        data,
+        this.player.position.x,
+        this.player.position.y - 0.5,
+        this.player.position.z
+      );
     };
 
     // [수정사항 2]: 핫바 9번 '마을 귀환석' 우클릭 사용 시 평지 마을(내 대지)로 즉시 귀환
@@ -274,6 +311,7 @@ class GameApp {
     this.setupDevTools();
     this.setupPlayerListModal();
     this.setupQuickChatModal();
+    this.setupChestModal();
     this.initRainSystem();
     this.setupCardNewsModal();
     this.updateTreeCountUI();
@@ -298,6 +336,22 @@ class GameApp {
   }
 
   /**
+   * 아이템 획득 처리: 가방 공간이 부족하면 바닥에 둥둥 뜨는 3D 아이템으로 드롭
+   */
+  private giveOrDropItem(blockType: BlockType, count: number = 1, x: number, y: number, z: number): void {
+    const success = this.hotbar.addResource(blockType, count);
+    if (!success) {
+      this.itemDropManager.spawnDropItem(
+        { type: 'block', blockType, count },
+        x + 0.5,
+        y + 0.5,
+        z + 0.5
+      );
+      this.showNotification('🎒 가방이 가득 차 아이템이 주변에 떨어졌습니다!', '📦');
+    }
+  }
+
+  /**
    * 블록 인터랙션 검사 (채굴 및 10x10 대지 건축/수정 제한 / 다른 학생 건축물 보호 + 관리자 권한)
    */
   private handleBlockInteract(event: BlockInteractEvent): boolean {
@@ -312,9 +366,38 @@ class GameApp {
         return false;
       }
 
+      // 상자 파괴 시 내부 아이템 바닥에 드롭 및 데이터 삭제
+      if (event.type === BlockType.CHEST) {
+        const chestKey = `${event.x}_${event.y}_${event.z}`;
+        this.chestManager.deleteChest(chestKey).then(slots => {
+          if (slots) {
+            slots.forEach(slot => {
+              if (slot && slot.count > 0) {
+                if (slot.isTool && slot.toolType) {
+                  this.itemDropManager.spawnDropItem(
+                    { type: 'tool', toolType: slot.toolType, count: 1 },
+                    event.x + 0.5, event.y + 0.5, event.z + 0.5
+                  );
+                } else if (slot.blockType !== undefined) {
+                  this.itemDropManager.spawnDropItem(
+                    { type: 'block', blockType: slot.blockType, count: slot.count },
+                    event.x + 0.5, event.y + 0.5, event.z + 0.5
+                  );
+                } else if (slot.itemType === 'STICK') {
+                  this.itemDropManager.spawnDropItem(
+                    { type: 'item', itemType: 'STICK', count: slot.count },
+                    event.x + 0.5, event.y + 0.5, event.z + 0.5
+                  );
+                }
+              }
+            });
+          }
+        });
+      }
+
       if (isResourceWorld) {
         // 자원 구역(개발도상국): 학생, 교사 모두 자유롭게 채굴 가능
-        this.hotbar.addResource(event.type, 1);
+        this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
         if (event.type === BlockType.WOOD) {
           setTimeout(() => this.checkDeforestation(), 50);
@@ -330,7 +413,7 @@ class GameApp {
 
         // 교사(관리자)는 모든 학생의 대지 및 공용 구역 건축물을 자유롭게 수정(파괴) 가능
         if (isTeacher) {
-          this.hotbar.addResource(event.type, 1);
+          this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
           this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
           return true;
         }
@@ -351,12 +434,22 @@ class GameApp {
         }
 
         // 본인 대지(#assignedPlotIndex) 내 정상 파괴
-        this.hotbar.addResource(event.type, 1);
+        this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
         return true;
       }
     } else if (event.action === 'place') {
       // 2. 건축 / 블록 설치 동작 (place)
+      const plot = this.world.getPlotAt(event.x, event.z);
+
+      // [규칙 2]: 보관 상자(CHEST)는 오직 나만의 집(내 10x10 대지 내부)에만 설치 가능!
+      if (event.type === BlockType.CHEST) {
+        if (isResourceWorld || !plot || plot.id !== this.player.assignedPlotIndex) {
+          this.showNotification(`📦 보관 상자는 오직 나만의 집(내 대지 #${this.player.assignedPlotIndex}) 안에만 설치할 수 있습니다!`, '🏠');
+          return false;
+        }
+      }
+
       if (isResourceWorld) {
         // [수정사항 2]: 자원 채취 구역(개발도상국)에서는 건축 절대 불가! (단, 관리자 예외)
         if (!isTeacher) {
@@ -369,8 +462,6 @@ class GameApp {
       if (!isResourceWorld) {
         // 교사(관리자)는 모든 대지 및 공용 구역에 자유롭게 건축 가능
         if (!isTeacher) {
-          const plot = this.world.getPlotAt(event.x, event.z);
-
           // 1) 마을 공용 구역(도로, 광장) 건축 차단
           if (!plot) {
             this.showNotification(`🚫 마을 공용 도로에는 건축할 수 없습니다! 나만의 대지(#${this.player.assignedPlotIndex}) 안에서만 집을 지어주세요.`, '🛡️');
@@ -1081,6 +1172,9 @@ class GameApp {
 
       // ESC 키로 열려있는 모달창 닫기
       if (e.code === 'Escape') {
+        if (!this.chestModal.classList.contains('hidden')) {
+          this.closeChestModal();
+        }
         if (!this.playerListModal.classList.contains('hidden')) {
           this.closePlayerListModal();
         }
@@ -1243,6 +1337,8 @@ class GameApp {
       this.plotSelector.value = assignedPlot.toString();
       this.playerDisplayEl.textContent = `${this.networkManager.playerName} (#${assignedPlot})`;
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 우리 반 마을`;
+
+      this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
 
       this.teleportToMyPlot();
       this.showNotification(`🎉 선생님께서 입장을 승인하셨습니다! 당신의 대지는 [#${assignedPlot}번]입니다.`, '🏡');
@@ -1443,6 +1539,7 @@ class GameApp {
                 this.player.bypassPlotRestriction = true;
                 this.playerDisplayEl.textContent = '👑 교사 (관리자)';
                 this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
+                this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
                 this.showNotification(`마을 #${r.roomCode} [${r.roomName}] 이어하기 성공!`, '👑');
                 this.requestPointerLockSafely();
               } else {
@@ -1539,6 +1636,7 @@ class GameApp {
       this.player.bypassPlotRestriction = true; // 교사는 모든 구역 건축 허용
       this.playerDisplayEl.textContent = '👑 교사 (관리자)';
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
+      this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
       this.showNotification(`교실 방 #${this.networkManager.roomCode} 개설 완료! 학생들에게 코드를 알려주세요.`, '👑');
       this.requestPointerLockSafely();
     });
@@ -1652,6 +1750,9 @@ class GameApp {
     this.updateRain(delta);
 
     this.player.update(delta);
+
+    // 4. 주변 드롭 아이템 회전/부유 및 자석 픽업
+    this.itemDropManager.update(delta, this.player.position, this.hotbar);
 
     // 각 대지의 자원 이동 문(포탈) 진입 충돌 검사
     if (this.portalCooldown > 0) {
@@ -2331,6 +2432,143 @@ class GameApp {
     if (count <= 0 && !this.isDeforestationFloodTriggered) {
       this.triggerDeforestationFlood();
     }
+  }
+
+  /**
+   * 보관 상자 모달 초기화
+   */
+  private setupChestModal(): void {
+    if (this.btnCloseChest) {
+      this.btnCloseChest.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeChestModal();
+      });
+    }
+
+    if (this.chestModal) {
+      this.chestModal.addEventListener('click', (e) => {
+        if (e.target === this.chestModal) {
+          this.closeChestModal();
+        }
+      });
+    }
+
+    this.chestManager.onChestDataChanged = (key, _slots) => {
+      if (this.chestManager.currentOpenChestKey === key) {
+        this.renderChestSlots();
+      }
+    };
+  }
+
+  public openChestModal(chestKey: string): void {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.player.isModalOpen = true;
+    this.chestManager.currentOpenChestKey = chestKey;
+    this.chestModal.classList.remove('hidden');
+    this.renderChestSlots();
+  }
+
+  public closeChestModal(): void {
+    this.chestModal.classList.add('hidden');
+    this.chestManager.currentOpenChestKey = null;
+    this.player.isModalOpen = false;
+    this.updatePlayerSelectedItem();
+    this.requestPointerLockSafely();
+  }
+
+  private getSlotDisplayInfo(slot: any): { emoji: string; name: string } {
+    if (slot.isTool && slot.toolType) {
+      const meta = TOOL_METAS[slot.toolType as ToolType];
+      return { emoji: meta?.emoji || '⛏️', name: meta?.name || '도구' };
+    }
+    if (slot.blockType !== undefined && slot.blockType !== BlockType.AIR) {
+      const meta = BLOCK_METAS[slot.blockType as BlockType];
+      return { emoji: meta?.emoji || '🧱', name: meta?.name || '블록' };
+    }
+    if (slot.itemType === 'STICK') {
+      return { emoji: '🥢', name: '막대기' };
+    }
+    if (slot.itemType === 'RETURN_STONE') {
+      return { emoji: '🧭', name: '마을 귀환석' };
+    }
+    return { emoji: '', name: '빈 슬롯' };
+  }
+
+  private renderChestSlots(): void {
+    const key = this.chestManager.currentOpenChestKey;
+    if (!key) return;
+
+    const chestSlots = this.chestManager.getOrCreateChest(key);
+
+    // 1. 상자 10칸 슬롯 렌더링
+    this.chestGrid.innerHTML = '';
+    chestSlots.forEach((slot, index) => {
+      const slotEl = document.createElement('div');
+      slotEl.className = 'chest-slot inv-interactive-slot';
+      slotEl.dataset.index = index.toString();
+
+      if (slot && slot.count > 0) {
+        const info = this.getSlotDisplayInfo(slot);
+        slotEl.innerHTML = `
+          <span class="slot-icon">${info.emoji}</span>
+          ${slot.count > 1 ? `<span class="slot-count">${slot.count}</span>` : ''}
+        `;
+        slotEl.title = `${info.name} ${slot.count}개 (클릭 시 핫바로 가져오기)`;
+        slotEl.classList.add('has-item');
+      } else {
+        slotEl.title = '빈 슬롯';
+      }
+
+      slotEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!slot || slot.count <= 0) return;
+        const success = this.chestManager.withdrawToHotbar(key, index, this.hotbar);
+        if (success) {
+          this.renderChestSlots();
+          this.updatePlayerSelectedItem();
+        } else {
+          this.showNotification('🎒 가방(핫바)에 여유 공간이 없습니다!', '⚠️');
+        }
+      });
+
+      this.chestGrid.appendChild(slotEl);
+    });
+
+    // 2. 플레이어 핫바 9칸 슬롯 렌더링
+    this.chestHotbarGrid.innerHTML = '';
+    this.hotbar.slots.forEach((slot, index) => {
+      const slotEl = document.createElement('div');
+      slotEl.className = 'chest-hotbar-slot inv-interactive-slot';
+      slotEl.dataset.index = index.toString();
+
+      if (slot && slot.count > 0) {
+        const info = this.getSlotDisplayInfo(slot);
+        slotEl.innerHTML = `
+          <span class="slot-icon">${info.emoji}</span>
+          ${slot.count > 1 ? `<span class="slot-count">${slot.count}</span>` : ''}
+        `;
+        slotEl.title = `${info.name} ${slot.count}개 (클릭 시 상자에 보관하기)`;
+        slotEl.classList.add('has-item');
+      } else {
+        slotEl.title = '빈 슬롯';
+      }
+
+      slotEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!slot || slot.count <= 0) return;
+        const success = this.chestManager.depositFromHotbar(key, index, this.hotbar);
+        if (success) {
+          this.renderChestSlots();
+          this.updatePlayerSelectedItem();
+        } else {
+          this.showNotification('📦 보관 상자가 가득 찼습니다! (최대 10칸)', '⚠️');
+        }
+      });
+
+      this.chestHotbarGrid.appendChild(slotEl);
+    });
   }
 }
 

@@ -23,6 +23,9 @@ export enum TileIndex {
   CRAFTING_SIDE = 9,
   MAGMA = 10,
   BEDROCK = 11,
+  CHEST_TOP = 12,
+  CHEST_FRONT = 13,
+  CHEST_SIDE = 14,
 }
 
 export function createBlockTextureAtlas(): THREE.CanvasTexture {
@@ -66,6 +69,15 @@ export function createBlockTextureAtlas(): THREE.CanvasTexture {
 
   // 12. 타일 11: BEDROCK (기반암 - 파괴 불가 단단한 암반)
   drawBedrock(ctx, 3 * TILE_PIXELS, 2 * TILE_PIXELS);
+
+  // 13. 타일 12: CHEST_TOP (보관 상자 윗면)
+  drawChestTop(ctx, 0 * TILE_PIXELS, 3 * TILE_PIXELS);
+
+  // 14. 타일 13: CHEST_FRONT (보관 상자 앞면 - 중앙 잠금장치 래치)
+  drawChestFront(ctx, 1 * TILE_PIXELS, 3 * TILE_PIXELS);
+
+  // 15. 타일 14: CHEST_SIDE (보관 상자 옆면/뒷면)
+  drawChestSide(ctx, 2 * TILE_PIXELS, 3 * TILE_PIXELS);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
@@ -111,6 +123,11 @@ export function getTileIndexForBlockFace(blockType: BlockType, faceDirY: number)
 
     case BlockType.MAGMA:
       return TileIndex.MAGMA;
+
+    case BlockType.CHEST:
+      if (faceDirY === 1) return TileIndex.CHEST_TOP;
+      if (faceDirY === -1) return TileIndex.PLANK;
+      return TileIndex.CHEST_FRONT;
 
     default:
       return TileIndex.STONE;
@@ -476,4 +493,76 @@ function drawBedrock(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
       }
     }
   }
+}
+
+// 13. 보관 상자 윗면: 짙은 목재 테두리와 뚜껑 패널
+function drawChestTop(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  ctx.fillStyle = '#8f6535';
+  ctx.fillRect(ox, oy, 32, 32);
+
+  // 짙은 목재 테두리 프레임 (두께 3px)
+  ctx.fillStyle = '#42280d';
+  ctx.fillRect(ox, oy, 32, 3);
+  ctx.fillRect(ox, oy + 29, 32, 3);
+  ctx.fillRect(ox, oy, 3, 32);
+  ctx.fillRect(ox + 29, oy, 3, 32);
+
+  // 내부 뚜껑 나뭇결 및 가로 홈
+  ctx.fillStyle = '#5c3913';
+  ctx.fillRect(ox + 3, oy + 14, 26, 2);
+
+  // 뚜껑 잠금 경첩 픽셀
+  ctx.fillStyle = '#261607';
+  ctx.fillRect(ox + 14, oy + 29, 4, 3);
+}
+
+// 14. 보관 상자 앞면: 궤짝 뚜껑 이음선 및 중앙 은색 잠금쇠(Latch)
+function drawChestFront(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  ctx.fillStyle = '#8f6535';
+  ctx.fillRect(ox, oy, 32, 32);
+
+  // 외곽 짙은 오크 프레임 (두께 3px)
+  ctx.fillStyle = '#42280d';
+  ctx.fillRect(ox, oy, 32, 3);
+  ctx.fillRect(ox, oy + 29, 32, 3);
+  ctx.fillRect(ox, oy, 3, 32);
+  ctx.fillRect(ox + 29, oy, 3, 32);
+
+  // 뚜껑 열림 가로 이음선 (Y = 10)
+  ctx.fillStyle = '#261607';
+  ctx.fillRect(ox + 3, oy + 10, 26, 2);
+
+  // 중앙 은색/황금 잠금장치 래치 (Latch, 크기 4x8)
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(ox + 14, oy + 8, 4, 7);
+
+  // 잠금쇠 테두리 및 열쇠구멍
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(ox + 14, oy + 8, 4, 1);
+  ctx.fillRect(ox + 14, oy + 14, 4, 1);
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(ox + 15, oy + 11, 2, 2);
+}
+
+// 15. 보관 상자 옆면/뒷면
+function drawChestSide(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  ctx.fillStyle = '#8f6535';
+  ctx.fillRect(ox, oy, 32, 32);
+
+  // 외곽 짙은 프레임
+  ctx.fillStyle = '#42280d';
+  ctx.fillRect(ox, oy, 32, 3);
+  ctx.fillRect(ox, oy + 29, 32, 3);
+  ctx.fillRect(ox, oy, 3, 32);
+  ctx.fillRect(ox + 29, oy, 3, 32);
+
+  // 뚜껑 열림 가로 이음선
+  ctx.fillStyle = '#261607';
+  ctx.fillRect(ox + 3, oy + 10, 26, 2);
+
+  // 철제 보강 리벳/못
+  setPixel(ctx, ox + 4, oy + 4, '#334155', 2);
+  setPixel(ctx, ox + 26, oy + 4, '#334155', 2);
+  setPixel(ctx, ox + 4, oy + 26, '#334155', 2);
+  setPixel(ctx, ox + 26, oy + 26, '#334155', 2);
 }
