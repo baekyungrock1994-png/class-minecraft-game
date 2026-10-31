@@ -668,7 +668,7 @@ export class PlayerController {
       // [지상 보행 물리]
       const moveSpeed = 7.5;
       const gravity = 25.0;
-      const jumpStrength = 7.4; // 1블록을 자연스럽고 묵직하게 뛰어넘는 마인크래프트 표준 점프력 (과도한 붕 뜸 방지)
+      const jumpStrength = 7.8; // 1블록을 자연스럽고 쾌적하게 뛰어넘는 마인크래프트 표준 점프력 (약 1.22블록)
 
       if (this.keys.KeyW) moveDir.add(forwardHoriz);
       if (this.keys.KeyS) moveDir.sub(forwardHoriz);
@@ -722,13 +722,12 @@ export class PlayerController {
       this.onGround = false;
     }
 
-    // [버그 수정 1]: X, Z축 이동 시 1블록 높이 턱을 부드럽게 타고 오르는 Step-Up(오토 클라이밍) 적용!
-    // 물속에서 블록 위로 올라가거나, 지상에서 1단 블록 턱을 오를 때 걸림 없이 매끄럽게 통과
+    // X, Z축 이동 (한 칸짜리 블록 자동 오르기 삭제: 장애물에 부드럽게 정지하고 스페이스바로 자연스럽게 점프)
     const limit = Math.floor(WORLD_SIZE / 2) - 2;
-    this.moveAxisWithStepUp('x', this.velocity.x * delta);
+    this.moveAxis('x', this.velocity.x * delta);
     this.position.x = Math.max(-limit, Math.min(limit, this.position.x));
 
-    this.moveAxisWithStepUp('z', this.velocity.z * delta);
+    this.moveAxis('z', this.velocity.z * delta);
     this.position.z = Math.max(-limit, Math.min(limit, this.position.z));
 
     // 혹시라도 버그로 지하 바닥 아래로 뚫린 경우에만 리스폰
@@ -738,51 +737,17 @@ export class PlayerController {
   }
 
   /**
-   * [버그 수정 1]: 1블록 턱 자동 오르기 (Step-Up / Auto-Jump)
-   * 물속에서 블록 벽을 만나거나 지상에서 1블록 턱을 만났을 때,
-   * 머리 위 공간이 비어있으면 1.10블록 턱 위로 자연스럽게 올라서도록 처리
+   * X, Z축 수평 이동 및 충돌 검사 (부자연스러운 자동 1블록 오르기 완전 제거)
+   * 1블록 턱을 만났을 때 덜컥거리는 순간이동 없이 자연스럽게 멈추며, Space(점프)로 직접 뛰어넘도록 처리
    */
-  private moveAxisWithStepUp(axis: 'x' | 'z', deltaVal: number): void {
+  private moveAxis(axis: 'x' | 'z', deltaVal: number): void {
     if (Math.abs(deltaVal) < 1e-6) return;
 
-    const origPos = this.position[axis];
-    const origY = this.position.y;
     this.position[axis] += deltaVal;
 
-    if (!this.checkCollision()) {
-      return; // 장애물 없이 정상 이동 완료
-    }
-
-    // 수평 이동 시 충돌 발생 -> Step-Up (최대 1.10블록 높이 턱 승강) 시도!
-    this.position[axis] = origPos; // 일단 제자리 복귀
-
-    const maxStep = 1.10;
-    const stepInterval = 0.1;
-    let success = false;
-
-    for (let h = stepInterval; h <= maxStep + 0.01; h += stepInterval) {
-      this.position.y = origY + h;
-      this.position[axis] = origPos + deltaVal;
-
-      if (!this.checkCollision()) {
-        // 턱 위 공간으로 성공적으로 진입!
-        success = true;
-        // 남은 틈새만큼 아래로 살짝 안착시켜 붕 뜨지 않게 정렬
-        for (let down = 0.05; down < h; down += 0.05) {
-          this.position.y = origY + h - down;
-          if (this.checkCollision()) {
-            this.position.y = origY + h - down + 0.05;
-            break;
-          }
-        }
-        break;
-      }
-    }
-
-    if (!success) {
-      // 2블록 이상의 높은 벽이거나 천장이 막힌 경우 -> 원위치 복원 및 속도 0
-      this.position.y = origY;
-      this.position[axis] = origPos;
+    if (this.checkCollision()) {
+      // 충돌 발생: 이동을 취소하고 수평 속도를 0으로 정지
+      this.position[axis] -= deltaVal;
       if (axis === 'x') this.velocity.x = 0;
       else this.velocity.z = 0;
     }
