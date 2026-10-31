@@ -82,6 +82,15 @@ class GameApp {
   private btnCloseQuickChat: HTMLElement;
   private chatMessagesContainer: HTMLElement;
 
+  // [수정사항 2]: 나무 50그루 추적, 비(Rain), 약한 홍수 및 환경 카드뉴스 요소
+  private treeCountPill: HTMLElement;
+  private treeCountLabel: HTMLElement;
+  private cardNewsModal: HTMLElement;
+  private currentCardSlide: number = 0;
+  private isDeforestationFloodTriggered: boolean = false;
+  private rainParticles: THREE.Points | null = null;
+  private isRaining: boolean = false;
+
   private timeOfDay: number = 12.0; // 0 ~ 24 시간 단위 (기본 12:00 정오 화창한 낮)
   private isTimeAutoAdvancing: boolean = false; // [수정사항 3]: 시간의 흐름 시스템 삭제 (항상 밝은 상태 유지)
   private timeAdvanceSpeed: number = 0;
@@ -94,6 +103,11 @@ class GameApp {
     this.playerDisplayEl = document.getElementById('player-display')!;
     this.currentZoneLabelEl = document.getElementById('current-zone-label')!;
     this.mouseModeHint = document.getElementById('mouse-mode-hint')!;
+
+    // 나무 카운트 및 환경 카드뉴스 요소
+    this.treeCountPill = document.getElementById('tree-count-pill')!;
+    this.treeCountLabel = document.getElementById('tree-count-label')!;
+    this.cardNewsModal = document.getElementById('card-news-modal')!;
 
     // 개발자 패널 요소
     this.devPanel = document.getElementById('dev-panel')!;
@@ -260,6 +274,9 @@ class GameApp {
     this.setupDevTools();
     this.setupPlayerListModal();
     this.setupQuickChatModal();
+    this.initRainSystem();
+    this.setupCardNewsModal();
+    this.updateTreeCountUI();
 
     // 초기 시간 및 구획 UI 갱신
     this.setTime(12.0);
@@ -299,6 +316,9 @@ class GameApp {
         // 자원 구역(개발도상국): 학생, 교사 모두 자유롭게 채굴 가능
         this.hotbar.addResource(event.type, 1);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
+        if (event.type === BlockType.WOOD) {
+          setTimeout(() => this.checkDeforestation(), 50);
+        }
         return true;
       } else {
         // 평지 주거 마을 (town)
@@ -430,6 +450,7 @@ class GameApp {
       btnTown.classList.add('active');
       btnResource.classList.remove('active');
       if (btnQuickReturn) btnQuickReturn.classList.add('hidden');
+      if (this.treeCountPill) this.treeCountPill.classList.add('hidden');
       this.currentZoneLabelEl.textContent = '마을 평지 (주거지)';
       this.showNotification('🏡 평지 마을로 이동했습니다! 나만의 10x10 대지에 집을 지어보세요.', '✨');
 
@@ -444,6 +465,8 @@ class GameApp {
       btnResource.classList.add('active');
       btnTown.classList.remove('active');
       if (btnQuickReturn) btnQuickReturn.classList.remove('hidden');
+      if (this.treeCountPill) this.treeCountPill.classList.remove('hidden');
+      this.updateTreeCountUI();
       this.currentZoneLabelEl.textContent = '자원 구역 (개발도상국)';
       this.showNotification('⛏️ 자원 구역(개발도상국)으로 이동했습니다! [ 키 또는 9번 귀환석으로 언제든 귀환 가능합니다.', '🌲');
 
@@ -732,6 +755,9 @@ class GameApp {
     this.world.disasterWaterLevel = 1.0;
     this.world.disasterWaterMesh.visible = false;
     this.world.clearMagmaEruption();
+    this.isDeforestationFloodTriggered = false;
+    this.isRaining = false;
+    if (this.rainParticles) this.rainParticles.visible = false;
 
     if (this.disasterStatusBadge) {
       this.disasterStatusBadge.textContent = '평화 상태';
@@ -741,6 +767,44 @@ class GameApp {
 
     this.setTime(this.timeOfDay); // 원래 시간 조명 복귀
     this.showNotification('🕊️ 환경이 정화되어 수위가 내려가고 마그마가 굳어 평화가 찾아왔습니다.', '✨');
+  }
+
+  /**
+   * [수정사항 2]: 자원 구역의 참나무 50그루가 전부 벌목되었을 때 약한 홍수와 비 발생 및 카드뉴스 안내
+   */
+  public triggerDeforestationFlood(): void {
+    if (this.isDeforestationFloodTriggered) return;
+    this.isDeforestationFloodTriggered = true;
+
+    // 마을에 비가 내리고 약한 홍수 발생
+    this.isRaining = true;
+    if (this.rainParticles) this.rainParticles.visible = true;
+
+    this.isDisasterActive = true;
+    this.world.isDisasterActive = true;
+    this.targetWaterY = 5.2; // 평지 Y=4.0 기준 1.2블록 차오름 (마을 침수)
+    this.world.disasterWaterLevel = this.targetWaterY;
+    this.world.disasterWaterMesh.visible = true;
+
+    // 흐리고 비오는 하늘 분위기 연출
+    (this.scene.background as THREE.Color).setHex(0x52606d);
+    if (this.scene.fog) {
+      (this.scene.fog as THREE.FogExp2).color.setHex(0x64748b);
+      (this.scene.fog as THREE.FogExp2).density = 0.02;
+    }
+    this.sunLight.color.setHex(0x94a3b8);
+    this.sunLight.intensity = 0.6;
+
+    if (this.disasterStatusBadge) {
+      this.disasterStatusBadge.textContent = '🌧️ 산림 벌채 침수 발생';
+      this.disasterStatusBadge.style.color = '#38bdf8';
+      this.disasterStatusBadge.style.borderColor = '#38bdf8';
+    }
+
+    this.showNotification('🌧️ [경고] 무분별한 벌목으로 숲이 사라져 평지 마을에 폭우와 홍수가 시작되었습니다!', '🌊');
+
+    // 환경 교육 카드뉴스 모달 팝업 표시
+    this.openCardNewsModal();
   }
 
   private toggleDevPanel(): void {
@@ -1070,6 +1134,10 @@ class GameApp {
             this.world.resourceBlocks.set(key, bType);
           }
         }
+      }
+
+      if (delta.worldType === 'resource' && (bType === BlockType.AIR || bType === 0)) {
+        this.checkDeforestation();
       }
     };
 
@@ -1536,16 +1604,29 @@ class GameApp {
       }
     }
 
-    // 2. 재앙 발동 중 하늘/조명 세기말적 붉은 연출
+    // 2. 재앙 발동 중 하늘/조명 연출 (폭우 vs 마그마 분출)
     if (this.isDisasterActive) {
-      (this.scene.background as THREE.Color).setHex(0x3b0707);
-      if (this.scene.fog) {
-        (this.scene.fog as THREE.FogExp2).color.setHex(0x450a0a);
-        (this.scene.fog as THREE.FogExp2).density = 0.024;
+      if (this.isRaining) {
+        (this.scene.background as THREE.Color).setHex(0x475569);
+        if (this.scene.fog) {
+          (this.scene.fog as THREE.FogExp2).color.setHex(0x64748b);
+          (this.scene.fog as THREE.FogExp2).density = 0.02;
+        }
+        this.sunLight.color.setHex(0x94a3b8);
+        this.sunLight.intensity = 0.65;
+      } else {
+        (this.scene.background as THREE.Color).setHex(0x3b0707);
+        if (this.scene.fog) {
+          (this.scene.fog as THREE.FogExp2).color.setHex(0x450a0a);
+          (this.scene.fog as THREE.FogExp2).density = 0.024;
+        }
+        this.sunLight.color.setHex(0xef4444);
+        this.sunLight.intensity = 1.35;
       }
-      this.sunLight.color.setHex(0xef4444);
-      this.sunLight.intensity = 1.35;
     }
+
+    // 3. 비 파티클 애니메이션
+    this.updateRain(delta);
 
     this.player.update(delta);
 
@@ -2050,6 +2131,183 @@ class GameApp {
         }
       }, 500);
     }, 7500);
+  }
+
+  /**
+   * [수정사항 2]: 비(Rain) 파티클 시스템 초기화
+   */
+  private initRainSystem(): void {
+    const rainCount = 1800;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(rainCount * 3);
+
+    for (let i = 0; i < rainCount; i++) {
+      positions[i * 3 + 0] = (Math.random() - 0.5) * 120; // x
+      positions[i * 3 + 1] = Math.random() * 40;          // y
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 120; // z
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+      color: 0x93c5fd,
+      size: 0.18,
+      transparent: true,
+      opacity: 0.75,
+    });
+
+    this.rainParticles = new THREE.Points(geometry, material);
+    this.rainParticles.visible = false;
+    this.scene.add(this.rainParticles);
+  }
+
+  /**
+   * 비 파티클 낙하 및 플레이어 추적 애니메이션
+   */
+  private updateRain(delta: number): void {
+    if (!this.rainParticles || !this.isRaining) return;
+
+    // 비 파티클을 플레이어 카메라 주위로 유지
+    const px = this.camera.position.x;
+    const pz = this.camera.position.z;
+    this.rainParticles.position.x = px;
+    this.rainParticles.position.z = pz;
+
+    const positions = this.rainParticles.geometry.attributes.position.array as Float32Array;
+    const count = positions.length / 3;
+    const speed = 35.0 * delta;
+
+    for (let i = 0; i < count; i++) {
+      positions[i * 3 + 1] -= speed;
+      if (positions[i * 3 + 1] < 0) {
+        positions[i * 3 + 1] = 35 + Math.random() * 5;
+      }
+    }
+    this.rainParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  /**
+   * [수정사항 2]: 환경 교육 카드뉴스 모달 이벤트 바인딩
+   */
+  private setupCardNewsModal(): void {
+    const btnCloseX = document.getElementById('btn-card-close-x');
+    const btnGoTown = document.getElementById('btn-card-go-town');
+    const btnPrev = document.getElementById('btn-card-prev') as HTMLButtonElement | null;
+    const btnNext = document.getElementById('btn-card-next') as HTMLButtonElement | null;
+    const dots = document.querySelectorAll('.card-dot');
+
+    if (btnCloseX) {
+      btnCloseX.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeCardNewsModal();
+      });
+    }
+
+    if (btnGoTown) {
+      btnGoTown.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeCardNewsModal();
+        if (this.world.currentWorldType !== 'town') {
+          this.switchWorld('town', 'portal');
+        }
+      });
+    }
+
+    if (btnPrev) {
+      btnPrev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.currentCardSlide > 0) {
+          this.showCardSlide(this.currentCardSlide - 1);
+        }
+      });
+    }
+
+    if (btnNext) {
+      btnNext.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.currentCardSlide < 2) {
+          this.showCardSlide(this.currentCardSlide + 1);
+        } else {
+          this.closeCardNewsModal();
+        }
+      });
+    }
+
+    dots.forEach((dot, index) => {
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showCardSlide(index);
+      });
+    });
+  }
+
+  public openCardNewsModal(): void {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.player.isModalOpen = true;
+    this.cardNewsModal.classList.remove('hidden');
+    this.showCardSlide(0);
+  }
+
+  public closeCardNewsModal(): void {
+    this.cardNewsModal.classList.add('hidden');
+    this.player.isModalOpen = false;
+    this.requestPointerLockSafely();
+  }
+
+  private showCardSlide(index: number): void {
+    this.currentCardSlide = Math.max(0, Math.min(2, index));
+    const slides = document.querySelectorAll('.card-news-slide');
+    const dots = document.querySelectorAll('.card-dot');
+    const btnPrev = document.getElementById('btn-card-prev') as HTMLButtonElement | null;
+    const btnNext = document.getElementById('btn-card-next') as HTMLButtonElement | null;
+
+    slides.forEach((slide, i) => {
+      slide.classList.toggle('active', i === this.currentCardSlide);
+    });
+
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('active', i === this.currentCardSlide);
+    });
+
+    if (btnPrev) {
+      btnPrev.style.visibility = this.currentCardSlide === 0 ? 'hidden' : 'visible';
+    }
+
+    if (btnNext) {
+      btnNext.textContent = this.currentCardSlide === 2 ? '확인 및 마을 보기 ✓' : '다음 카드 ❯';
+    }
+  }
+
+  /**
+   * 남은 참나무 수 HUD 갱신
+   */
+  public updateTreeCountUI(): void {
+    if (!this.treeCountLabel || !this.treeCountPill) return;
+    const count = this.world.getRemainingTreeCount();
+    this.treeCountLabel.textContent = `남은 나무: ${count}/50`;
+
+    if (count <= 10) {
+      this.treeCountPill.style.background = 'rgba(239, 68, 68, 0.25)';
+      this.treeCountPill.style.borderColor = '#ef4444';
+      this.treeCountPill.style.color = '#fca5a5';
+    } else {
+      this.treeCountPill.style.background = '';
+      this.treeCountPill.style.borderColor = '';
+      this.treeCountPill.style.color = '';
+    }
+  }
+
+  /**
+   * 자원 구역의 벌목 상황을 감지하여 0그루일 때 홍수 유발
+   */
+  public checkDeforestation(): void {
+    this.updateTreeCountUI();
+    const count = this.world.getRemainingTreeCount();
+    if (count <= 0 && !this.isDeforestationFloodTriggered) {
+      this.triggerDeforestationFlood();
+    }
   }
 }
 

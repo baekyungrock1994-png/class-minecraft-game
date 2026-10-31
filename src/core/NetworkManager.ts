@@ -853,7 +853,8 @@ export class NetworkManager {
       remote = {
         data,
         mesh,
-        targetPos: new THREE.Vector3(data.x, data.y, data.z),
+        // [지시사항 1]: data.y(시선/카메라 높이)에서 playerHeight(1.8)를 빼서 발이 지면(y=0)에 딱 닿도록 보정
+        targetPos: new THREE.Vector3(data.x, data.y - 1.8, data.z),
         targetRotY: data.rotY
       };
       this.remotePlayers.set(data.uid, remote);
@@ -865,13 +866,14 @@ export class NetworkManager {
         const labelText = data.role === 'teacher' ? `👑 ${data.name} (선생님)` : `🧑‍🎓 ${data.name} (#${data.plotId} 대지)`;
         const newSprite = this.createNameSprite(labelText, data.role === 'teacher');
         newSprite.name = 'nameSprite';
-        newSprite.position.y = 2.0;
+        newSprite.position.y = 2.15;
         remote.mesh.add(newSprite);
       }
     }
 
     remote.data = data;
-    remote.targetPos.set(data.x, data.y, data.z);
+    // [지시사항 1]: 실시간 위치 보간 시에도 발바닥이 블록 표면에 완벽 밀착되도록 y - 1.8 적용
+    remote.targetPos.set(data.x, data.y - 1.8, data.z);
     remote.targetRotY = data.rotY;
 
     // 다른 월드에 있으면 보이지 않게 처리
@@ -880,6 +882,7 @@ export class NetworkManager {
 
   /**
    * 귀여운 3D 복셀 아바타 & 3D 닉네임 라벨 생성
+   * 발바닥이 y=0(지면)에 완벽하게 일치하도록 정밀 좌표 정렬
    */
   private createPlayerAvatar(name: string, role: string, plotId: number): THREE.Group {
     const group = new THREE.Group();
@@ -888,25 +891,23 @@ export class NetworkManager {
     const bodyColor = role === 'teacher' ? 0x8b5cf6 : 0x0ea5e9;
     const pantsColor = role === 'teacher' ? 0x4c1d95 : 0x0369a1;
 
-    // 1. 머리 (Box)
-    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xffdbac });
-    const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.45;
-    group.add(head);
+    // 1. 다리 (양쪽) - 높이 0.65, 중심 Y=0.325 -> 발바닥 밑창이 정확히 Y=0.00에 닿음!
+    const legGeo = new THREE.BoxGeometry(0.22, 0.65, 0.25);
+    const legMat = new THREE.MeshLambertMaterial({ color: pantsColor });
 
-    // 모자/머리카락 (교사는 금관/학사모, 학생은 캡)
-    const hatGeo = new THREE.BoxGeometry(0.54, 0.2, 0.54);
-    const hatMat = new THREE.MeshLambertMaterial({ color: role === 'teacher' ? 0xf59e0b : 0x334155 });
-    const hat = new THREE.Mesh(hatGeo, hatMat);
-    hat.position.y = 1.62;
-    group.add(hat);
+    const leftLeg = new THREE.Mesh(legGeo, legMat);
+    leftLeg.position.set(-0.13, 0.325, 0);
+    group.add(leftLeg);
 
-    // 2. 몸통
+    const rightLeg = new THREE.Mesh(legGeo, legMat);
+    rightLeg.position.set(0.13, 0.325, 0);
+    group.add(rightLeg);
+
+    // 2. 몸통 - 높이 0.7, Y=0.65(다리 위) + 0.35 = 1.00
     const bodyGeo = new THREE.BoxGeometry(0.5, 0.7, 0.3);
     const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.85;
+    body.position.y = 1.00;
     group.add(body);
 
     // 3. 팔 (양쪽)
@@ -914,30 +915,32 @@ export class NetworkManager {
     const armMat = new THREE.MeshLambertMaterial({ color: bodyColor });
 
     const leftArm = new THREE.Mesh(armGeo, armMat);
-    leftArm.position.set(-0.35, 0.85, 0);
+    leftArm.position.set(-0.35, 1.00, 0);
     group.add(leftArm);
 
     const rightArm = new THREE.Mesh(armGeo, armMat);
-    rightArm.position.set(0.35, 0.85, 0);
+    rightArm.position.set(0.35, 1.00, 0);
     group.add(rightArm);
 
-    // 4. 다리 (양쪽)
-    const legGeo = new THREE.BoxGeometry(0.22, 0.65, 0.25);
-    const legMat = new THREE.MeshLambertMaterial({ color: pantsColor });
+    // 4. 머리 (Box) - 높이 0.5, Y=1.35(몸통 위) + 0.25 = 1.60
+    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const headMat = new THREE.MeshLambertMaterial({ color: 0xffdbac });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.60;
+    group.add(head);
 
-    const leftLeg = new THREE.Mesh(legGeo, legMat);
-    leftLeg.position.set(-0.13, 0.25, 0);
-    group.add(leftLeg);
-
-    const rightLeg = new THREE.Mesh(legGeo, legMat);
-    rightLeg.position.set(0.13, 0.25, 0);
-    group.add(rightLeg);
+    // 모자/머리카락
+    const hatGeo = new THREE.BoxGeometry(0.54, 0.2, 0.54);
+    const hatMat = new THREE.MeshLambertMaterial({ color: role === 'teacher' ? 0xf59e0b : 0x334155 });
+    const hat = new THREE.Mesh(hatGeo, hatMat);
+    hat.position.y = 1.80;
+    group.add(hat);
 
     // 5. 머리 위 3D 닉네임 라벨 (Canvas 기반 스프라이트)
     const labelText = role === 'teacher' ? `👑 ${name} (선생님)` : `🧑‍🎓 ${name} (#${plotId} 대지)`;
     const nameSprite = this.createNameSprite(labelText, role === 'teacher');
     nameSprite.name = 'nameSprite';
-    nameSprite.position.y = 2.0;
+    nameSprite.position.y = 2.15;
     group.add(nameSprite);
 
     return group;

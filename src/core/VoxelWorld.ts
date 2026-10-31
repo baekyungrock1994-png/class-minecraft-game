@@ -86,6 +86,14 @@ export interface PortalInfo {
   z: number;
 }
 
+export interface ResourceTreeData {
+  id: number;
+  rootX: number;
+  rootY: number;
+  rootZ: number;
+  trunkKeys: string[];
+}
+
 export class VoxelWorld {
   public townBlocks: Map<string, BlockType> = new Map();
   public resourceBlocks: Map<string, BlockType> = new Map();
@@ -94,11 +102,14 @@ export class VoxelWorld {
   public currentWorldType: WorldType = 'town';
   public plots: PlotInfo[] = [];
 
+  // [지시사항 2]: 자원 구역 참나무 50그루 관리
+  public resourceTrees: ResourceTreeData[] = [];
+
   // 마을 중앙 광장 신성한 차원문 제단 1개 및 자원 구역 복귀 문
   public townPortals: PortalInfo[] = [
-    { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0.5 }
+    { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0 }
   ];
-  public resourceReturnPortal: PortalInfo = { name: '마을 복귀 문', x: 0.5, y: 5, z: -3.5 };
+  public resourceReturnPortal: PortalInfo = { name: '신성한 마을 복귀 문', x: 0.5, y: 5, z: -4 };
 
   // 청크 기반 지형 분할 렌더러 (평지 마을 & 자원 구역 독립 캐싱 -> 월드 전환 렉 0ms)
   private townChunkMeshes: Map<string, THREE.Mesh> = new Map();
@@ -519,6 +530,7 @@ export class VoxelWorld {
   public generateResourceTerrain(): void {
     this.resourceBlocks.clear();
     const half = Math.floor(RESOURCE_WORLD_SIZE / 2); // 56 / 2 = 28
+    const treeCandidateSpots: Array<{ x: number; y: number; z: number }> = [];
 
     for (let x = -half; x < half; x++) {
       for (let z = -half; z < half; z++) {
@@ -559,13 +571,9 @@ export class VoxelWorld {
           this.resourceBlocks.set(this.getKey(x, groundY, z), BlockType.MAGMA);
         }
 
-        // 참나무 숲
+        // [지시사항 2]: 참나무 숲 후보지 수집 (완만한 잔디 언덕 지형)
         if (groundY >= 3 && hill <= 3.0) {
-          const treeSeed = Math.sin(x * 17.654 + z * 93.21) * 43758.5453;
-          const rand = treeSeed - Math.floor(treeSeed);
-          if (rand > 0.85) {
-            this.spawnTreeInResource(x, groundY + 1, z);
-          }
+          treeCandidateSpots.push({ x, y: groundY + 1, z });
         }
       }
     }
@@ -593,7 +601,6 @@ export class VoxelWorld {
     }
 
     // 신성한 마을 복귀 제단 대문 (2칸 문 통로: x: 0, 1 / 기둥: x: -1, 2)
-    // 좌우 기둥 (단단한 석재 및 마그마 룬)
     const resPillars = [
       { x: rx - 1, z: rz },
       { x: rx + 2, z: rz }
@@ -626,12 +633,59 @@ export class VoxelWorld {
       y: returnGroundY,
       z: rz,
     };
+
+    // [지시사항 2]: 자원 구역(개발도상국) 나무를 정확히 50그루로 선별 및 배치
+    this.resourceTrees = [];
+    const chosenTrees: Array<{ x: number; y: number; z: number }> = [];
+
+    // 제단 구역(x: -4~4, z: -8~1)은 제외하고 결정론적 난수 기반 정렬
+    const sortedCandidates = treeCandidateSpots
+      .filter(c => !(Math.abs(c.x) <= 4 && c.z >= -8 && c.z <= 1))
+      .sort((a, b) => {
+        const sa = Math.sin(a.x * 37.12 + a.z * 53.84) * 10000;
+        const sb = Math.sin(b.x * 37.12 + b.z * 53.84) * 10000;
+        return (sa - Math.floor(sa)) - (sb - Math.floor(sb));
+      });
+
+    // 1차: 나무 간격 2.5블록 이상으로 분산 선별
+    for (const spot of sortedCandidates) {
+      if (chosenTrees.length >= 50) break;
+      if (!chosenTrees.some(t => Math.hypot(t.x - spot.x, t.z - spot.z) < 2.5)) {
+        chosenTrees.push(spot);
+      }
+    }
+    // 2차: 부족하면 1.8블록 간격으로 보충
+    if (chosenTrees.length < 50) {
+      for (const spot of sortedCandidates) {
+        if (chosenTrees.length >= 50) break;
+        if (!chosenTrees.some(t => Math.hypot(t.x - spot.x, t.z - spot.z) < 1.8)) {
+          chosenTrees.push(spot);
+        }
+      }
+    }
+    // 3차: 그래도 부족할 경우 남은 후보지에서 50그루를 정확히 채움
+    if (chosenTrees.length < 50) {
+      for (const spot of sortedCandidates) {
+        if (chosenTrees.length >= 50) break;
+        if (!chosenTrees.some(t => t.x === spot.x && t.z === spot.z)) {
+          chosenTrees.push(spot);
+        }
+      }
+    }
+
+    // 선별된 정확히 50그루 나무를 심고 기둥 블록을 추적 등록
+    chosenTrees.forEach((spot, idx) => {
+      this.spawnTreeInResource(spot.x, spot.y, spot.z, idx + 1);
+    });
   }
 
-  private spawnTreeInResource(rootX: number, rootY: number, rootZ: number): void {
+  private spawnTreeInResource(rootX: number, rootY: number, rootZ: number, treeId: number = 0): void {
+    const trunkKeys: string[] = [];
     const trunkHeight = 4 + Math.floor(Math.abs(Math.sin(rootX * 3 + rootZ)) * 2);
     for (let dy = 0; dy < trunkHeight; dy++) {
-      this.resourceBlocks.set(this.getKey(rootX, rootY + dy, rootZ), BlockType.WOOD);
+      const key = this.getKey(rootX, rootY + dy, rootZ);
+      this.resourceBlocks.set(key, BlockType.WOOD);
+      trunkKeys.push(key);
     }
     const leafStartY = rootY + trunkHeight - 2;
     for (let lx = -2; lx <= 2; lx++) {
@@ -645,6 +699,31 @@ export class VoxelWorld {
         }
       }
     }
+
+    if (treeId > 0) {
+      this.resourceTrees.push({
+        id: treeId,
+        rootX,
+        rootY,
+        rootZ,
+        trunkKeys
+      });
+    }
+  }
+
+  /**
+   * 자원 구역(개발도상국)에 아직 밑동(원목)이 남아있는 살아있는 나무의 수 계산
+   */
+  public getRemainingTreeCount(): number {
+    let count = 0;
+    for (const tree of this.resourceTrees) {
+      // 기둥 원목(WOOD) 중 1개라도 남아있으면 생존으로 판정
+      const isAlive = tree.trunkKeys.some(k => this.resourceBlocks.get(k) === BlockType.WOOD);
+      if (isAlive) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**

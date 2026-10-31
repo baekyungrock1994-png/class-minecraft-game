@@ -30,6 +30,8 @@ export class PlayerController {
   public hp: number = MAX_HP;
   public oxygen: number = 10.0;
   private damageCooldown: number = 0;
+  private timeSinceLastDamage: number = 0;
+  private regenTimer: number = 0;
   private damageVignette: HTMLElement | null = null;
   private heartsContainer: HTMLElement | null = null;
   private oxygenContainer: HTMLElement | null = null;
@@ -331,19 +333,45 @@ export class PlayerController {
       this.updateOxygenUI(false);
     }
 
-    // 2. 마그마 블록 접촉 검사
-    const bx = Math.floor(this.position.x);
-    const byFeet = Math.floor(feetY);
-    const bz = Math.floor(this.position.z);
+    // 2. 마그마 블록 접촉 및 근접 열기 피해 검사 (마그마 근처 1.5블록 접근 시 지속 피해)
+    let isTouchingMagma = false;
+    let isNearMagma = false;
 
-    const standingBlock = this.world.getBlock(bx, byFeet, bz);
-    const insideBlock = this.world.getBlock(bx, Math.floor(feetY + 0.5), bz);
+    const feetBlockY = Math.floor(feetY);
+    const headBlockY = Math.floor(headY);
+    const minBx = Math.floor(this.position.x - 1.3);
+    const maxBx = Math.floor(this.position.x + 1.3);
+    const minBz = Math.floor(this.position.z - 1.3);
+    const maxBz = Math.floor(this.position.z + 1.3);
+    const minBy = Math.max(0, feetBlockY - 1);
+    const maxBy = Math.min(WORLD_HEIGHT - 1, headBlockY + 1);
 
-    if ((standingBlock === BlockType.MAGMA || insideBlock === BlockType.MAGMA) && this.damageCooldown <= 0) {
-      this.takeDamage(25, '마그마의 뜨거운 열기에 데였습니다! 🔥');
-      // 넉백 점프
-      this.velocity.y = 8.0;
+    for (let x = minBx; x <= maxBx; x++) {
+      for (let y = minBy; y <= maxBy; y++) {
+        for (let z = minBz; z <= maxBz; z++) {
+          if (this.world.getBlock(x, y, z) === BlockType.MAGMA) {
+            const cdx = (x + 0.5) - this.position.x;
+            const cdy = (y + 0.5) - (feetY + 0.9);
+            const cdz = (z + 0.5) - this.position.z;
+            const distSq = cdx * cdx + cdy * cdy + cdz * cdz;
+
+            if (distSq < 0.95) {
+              isTouchingMagma = true;
+            } else if (distSq < 2.5) {
+              isNearMagma = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (isTouchingMagma && this.damageCooldown <= 0) {
+      this.takeDamage(20, '마그마를 직접 밟아 심한 화상을 입었습니다! 🔥');
+      this.velocity.y = 6.0;
       this.damageCooldown = 0.8;
+    } else if (isNearMagma && this.damageCooldown <= 0) {
+      this.takeDamage(8, '마그마의 극심한 고열에 화상을 입고 있습니다! 🔥');
+      this.damageCooldown = 1.0;
     }
 
     // 3. 보이드(허공) 추락 방지: Y좌표가 -4 이하로 떨어지면 안전한 지상 스폰 지점으로 즉시 텔레포트
@@ -356,11 +384,26 @@ export class PlayerController {
       }
       this.takeDamage(10, '허공으로 추락하여 신성한 제단으로 긴급 복귀했습니다! ⚡');
     }
+
+    // 4. [지시사항 3]: 데미지를 받지 않고 4.0초가 지나면 1초마다 조금씩 피가 다시 회복 (+5 HP)
+    this.timeSinceLastDamage += delta;
+    if (this.timeSinceLastDamage >= 4.0 && this.hp < MAX_HP && this.hp > 0) {
+      this.regenTimer += delta;
+      if (this.regenTimer >= 1.0) {
+        this.regenTimer = 0;
+        this.hp = Math.min(MAX_HP, this.hp + 5);
+        this.renderHearts();
+      }
+    } else {
+      this.regenTimer = 0;
+    }
   }
 
   public takeDamage(amount: number, reason: string, isFromPlayer: boolean = false): void {
     if (isFromPlayer) return; // [수정사항 4]: 플레이어 간 상호 공격(PVP) 원천 차단
     this.hp -= amount;
+    this.timeSinceLastDamage = 0;
+    this.regenTimer = 0;
     this.flashDamage();
     this.renderHearts();
 

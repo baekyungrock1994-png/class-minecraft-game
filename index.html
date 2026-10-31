@@ -58,6 +58,10 @@
           <span class="pill-icon">📍</span>
           <span id="current-zone-label">마을 평지</span>
         </div>
+        <div class="pill tree-pill hidden" id="tree-count-pill" title="자원 구역(개발도상국)에 남은 나무 수 (50그루가 전부 벌목되면 대홍수가 발생합니다!)">
+          <span class="pill-icon">🌲</span>
+          <span id="tree-count-label">나무 50/50</span>
+        </div>
         <div class="pill peace-pill" title="평화 협동 모드: 플레이어 간 공격(PVP) 불가">
           <span class="pill-icon">🛡️</span>
           <span>평화 모드</span>
@@ -606,6 +610,68 @@
 
       <!-- 에러 메시지 팝업 -->
       <div id="auth-error-msg" class="auth-error hidden"></div>
+    </div>
+  </div>
+
+  <!-- [지시사항 2]: 무분별한 벌목으로 인한 홍수 발생 원인 교육용 카드뉴스 모달 -->
+  <div id="card-news-modal" class="modal-backdrop hidden">
+    <div class="modal-card card-news-card">
+      <div class="card-news-header">
+        <span class="card-news-badge">📰 환경 속보 카드뉴스</span>
+        <button id="btn-card-close-x" class="card-close-x" type="button" title="닫기">✕</button>
+      </div>
+
+      <!-- 카드뉴스 본문 슬라이드 컨테이너 -->
+      <div class="card-news-slides-container">
+        <!-- 슬라이드 1 -->
+        <div class="card-news-slide active" data-slide="0">
+          <div class="card-slide-icon">🌲 ➔ 🪓</div>
+          <div class="card-slide-tag">원인: 50그루의 나무 전멸</div>
+          <h3 class="card-slide-headline">자원 구역(개발도상국)의 모든 숲이 사라졌습니다!</h3>
+          <p class="card-slide-desc">
+            자원을 편리하게 채취하기 위해 개발도상국 숲에 있던 <strong>나무 50그루가 모조리 벌목</strong>되었습니다.<br>
+            울창했던 산림은 민둥산이 되었고, 땅을 단단하게 붙잡아주던 나무뿌리가 전부 파괴되었습니다.
+          </p>
+        </div>
+
+        <!-- 슬라이드 2 -->
+        <div class="card-news-slide" data-slide="1">
+          <div class="card-slide-icon">🌧️ ➔ 🌊</div>
+          <div class="card-slide-tag">과학 원리: 녹색 댐의 붕괴</div>
+          <h3 class="card-slide-headline">나무가 사라지면 왜 마을에 홍수가 날까요?</h3>
+          <p class="card-slide-desc">
+            숲의 나무와 깊은 뿌리는 엄청난 양의 빗물을 빨아들여 천천히 흘려보내는 <strong>'천연 녹색 댐'</strong> 역할을 합니다.<br>
+            나무가 사라지자 폭우가 땅으로 스며들지 못하고 한꺼번에 지표면으로 쏟아져 내려 <strong>우리 평지 마을이 침수</strong>되었습니다!
+          </p>
+        </div>
+
+        <!-- 슬라이드 3 -->
+        <div class="card-news-slide" data-slide="2">
+          <div class="card-slide-icon">🌍 ➔ 🏡</div>
+          <div class="card-slide-tag">환경 교훈: 파괴의 부메랑</div>
+          <h3 class="card-slide-headline">개발도상국의 자원 채취, 그리고 우리 마을의 재난</h3>
+          <p class="card-slide-desc">
+            우리가 편리한 건축 자재를 얻기 위해 자연을 생각하지 않고 무분별하게 채취한 결과가<br>
+            결국 <strong>우리 마을의 집과 도로가 물에 잠기는 기후 재난</strong>이라는 부메랑으로 되돌아왔습니다.<br>
+            <em>환경 보호와 자원 개발의 공존이 왜 필요한지 생각해 볼 때입니다.</em>
+          </p>
+        </div>
+      </div>
+
+      <!-- 슬라이드 내비게이션 & 도트 -->
+      <div class="card-news-nav">
+        <button id="btn-card-prev" class="card-nav-btn" type="button" disabled>◀ 이전</button>
+        <div class="card-dots">
+          <span class="card-dot active" data-index="0"></span>
+          <span class="card-dot" data-index="1"></span>
+          <span class="card-dot" data-index="2"></span>
+        </div>
+        <button id="btn-card-next" class="card-nav-btn" type="button">다음 ▶</button>
+      </div>
+
+      <div class="card-news-actions">
+        <button id="btn-card-go-town" class="primary-btn full-btn" type="button">🏡 평지 마을로 가서 침수 현장 확인하기</button>
+      </div>
     </div>
   </div>
 

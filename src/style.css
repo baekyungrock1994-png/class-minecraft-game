@@ -2720,4 +2720,193 @@ kbd {
   background: #0369a1;
 }
 
+/* =========================================================
+   나무 카운트 및 환경 카드뉴스 모달 스타일
+   ========================================================= */
+.tree-pill {
+  background: #14532d !important;
+  border-color: #22c55e !important;
+  color: #86efac !important;
+  font-weight: 800;
+}
+
+.card-news-card {
+  max-width: 520px;
+  width: 92%;
+  background: #0f172a;
+  border: 2px solid #38bdf8;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.25);
+  padding: 24px 28px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: cardNewsPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes cardNewsPop {
+  0% { transform: scale(0.9) translateY(20px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.card-news-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1.5px solid #334155;
+  padding-bottom: 12px;
+}
+
+.card-news-badge {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+}
+
+.card-close-x {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.card-close-x:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.card-news-slides-container {
+  min-height: 220px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.card-news-slide {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  width: 100%;
+  animation: slideFadeIn 0.25s ease-out;
+}
+
+.card-news-slide.active {
+  display: flex;
+}
+
+@keyframes slideFadeIn {
+  0% { opacity: 0; transform: translateX(12px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.card-slide-icon {
+  font-size: 40px;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4));
+}
+
+.card-slide-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+.card-slide-headline {
+  font-size: 17px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 2px 0;
+  line-height: 1.4;
+}
+
+.card-slide-desc {
+  font-size: 13.5px;
+  color: #cbd5e1;
+  line-height: 1.6;
+  margin: 0;
+  word-break: keep-all;
+}
+
+.card-slide-desc strong {
+  color: #f87171;
+}
+
+.card-slide-desc em {
+  color: #fcd34d;
+  font-style: normal;
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+.card-news-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px 6px;
+  border-top: 1px solid #1e293b;
+}
+
+.card-nav-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #ffffff;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.card-nav-btn:hover:not(:disabled) {
+  background: #334155;
+  border-color: #38bdf8;
+}
+
+.card-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.card-dots {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.card-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: #334155;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.card-dot.active {
+  background: #38bdf8;
+  width: 22px;
+}
+
+.card-news-actions {
+  margin-top: 4px;
+}
+
 
