@@ -586,21 +586,21 @@ export class PlayerController {
         this.velocity.z *= 0.8;
       }
 
-      // [버그 수정 1]: 물 표면 근처에서 점프(Space)를 누르면 물 밖 블록/육지로 뛰어오르는 강력한 수면 도약!
+      // [버그 수정 1]: 물 표면 근처에서 점프(Space)를 누르면 물 밖 블록/육지로 뛰어오르는 수면 도약
       const isHeadNearWaterSurface = !this.world.isPositionInWater(this.position.x, this.position.y - 0.3, this.position.z);
       if (this.keys.Space) {
         if (isHeadNearWaterSurface) {
-          // 수면에서 점프 시 지상 점프 수준으로 물을 박차고 육지로 솟구침
-          this.velocity.y = 8.2;
+          // 과도하지 않고 산뜻하게 수면 위로 뛰어오름 (6.8)
+          this.velocity.y = 6.8;
         } else {
-          // 깊은 물속에서는 빠른 상승 유영
-          this.velocity.y = 6.5;
+          // 깊은 물속 안정적인 상승 유영 (5.0)
+          this.velocity.y = 5.0;
         }
       }
 
       // 수면 근처 자연스러운 부력 (가라앉지 않고 머리를 수면 위로 띄움)
       if (isHeadNearWaterSurface && this.velocity.y < 0) {
-        this.velocity.y += 4.0 * delta;
+        this.velocity.y += 3.0 * delta;
       } else {
         // 깊은 물속 미세한 침강
         this.velocity.y -= 1.5 * delta;
@@ -609,7 +609,7 @@ export class PlayerController {
       // [지상 보행 물리]
       const moveSpeed = 7.5;
       const gravity = 25.0;
-      const jumpStrength = 8.5;
+      const jumpStrength = 7.4; // 1블록을 자연스럽고 묵직하게 뛰어넘는 마인크래프트 표준 점프력 (과도한 붕 뜸 방지)
 
       if (this.keys.KeyW) moveDir.add(forwardHoriz);
       if (this.keys.KeyS) moveDir.sub(forwardHoriz);
