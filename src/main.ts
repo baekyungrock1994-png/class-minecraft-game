@@ -1707,17 +1707,28 @@ class GameApp {
       this.btnToastApprove.onclick = async (e) => {
         e.stopPropagation();
         this.btnToastApprove.setAttribute('disabled', 'true');
-        await this.networkManager.approveStudent(latest.uid);
-        this.btnToastApprove.removeAttribute('disabled');
-        this.showNotification(`[${latest.name}] 학생의 입장을 승인했습니다!`, '✅');
+        try {
+          await this.networkManager.approveStudent(latest.uid);
+          this.showNotification(`[${latest.name}] 학생의 입장을 승인했습니다!`, '✅');
+        } catch (err: any) {
+          console.error('Approve error:', err);
+          this.showNotification(`입장 승인 중 오류가 발생했습니다: ${err.message || err}`, '⚠️');
+        } finally {
+          this.btnToastApprove.removeAttribute('disabled');
+        }
       };
 
       this.btnToastReject.onclick = async (e) => {
         e.stopPropagation();
         this.btnToastReject.setAttribute('disabled', 'true');
-        await this.networkManager.rejectStudent(latest.uid);
-        this.btnToastReject.removeAttribute('disabled');
-        this.showNotification(`[${latest.name}] 학생의 입장을 거절했습니다.`, '❌');
+        try {
+          await this.networkManager.rejectStudent(latest.uid);
+          this.showNotification(`[${latest.name}] 학생의 입장을 거절했습니다.`, '❌');
+        } catch (err: any) {
+          console.error('Reject error:', err);
+        } finally {
+          this.btnToastReject.removeAttribute('disabled');
+        }
       };
 
       this.joinRequestToast.classList.remove('hidden');
@@ -1773,8 +1784,14 @@ class GameApp {
       approveBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         approveBtn.setAttribute('disabled', 'true');
-        await this.networkManager.approveStudent(req.uid);
-        this.showNotification(`[${req.name}] 학생의 입장을 승인했습니다!`, '✅');
+        try {
+          await this.networkManager.approveStudent(req.uid);
+          this.showNotification(`[${req.name}] 학생의 입장을 승인했습니다!`, '✅');
+        } catch (err: any) {
+          console.error('Approve error in modal:', err);
+          this.showNotification(`입장 승인 오류: ${err.message || err}`, '⚠️');
+          approveBtn.removeAttribute('disabled');
+        }
       });
 
       const rejectBtn = document.createElement('button');

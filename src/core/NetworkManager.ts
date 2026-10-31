@@ -425,14 +425,26 @@ export class NetworkManager {
   public async approveStudent(applicantUid: string): Promise<number> {
     if (!this.roomCode || this.role !== 'teacher') return 1;
 
-    // 1. 기존 영구 배정 기록(assignedPlots) 확인
+    // 1. 기존 영구 배정 기록(assignedPlots) 확인 (권한 오류 시에도 승인이 멈추지 않도록 안전 보호)
+    let assignedPlotsMap: Record<string, number> = {};
     const assignedPlotsRef = ref(this.db, `rooms/${this.roomCode}/assignedPlots`);
-    const assignedPlotsSnap = await get(assignedPlotsRef);
-    const assignedPlotsMap: Record<string, number> = assignedPlotsSnap.exists() ? assignedPlotsSnap.val() : {};
+    try {
+      const assignedPlotsSnap = await get(assignedPlotsRef);
+      if (assignedPlotsSnap.exists()) {
+        assignedPlotsMap = assignedPlotsSnap.val() || {};
+      }
+    } catch (e) {
+      console.warn('assignedPlots read skipped (rules not updated):', e);
+    }
 
     // 신청자의 이름 확인
-    const reqSnap = await get(ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`));
-    const applicantName = reqSnap.exists() ? (reqSnap.val().name || '') : '';
+    let applicantName = '';
+    try {
+      const reqSnap = await get(ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`));
+      applicantName = reqSnap.exists() ? (reqSnap.val().name || '') : '';
+    } catch (e) {
+      console.warn('joinRequests read error:', e);
+    }
 
     // 기존에 배정받은 적이 있는 학생(이름 또는 UID 기준)이면 기존 대지 복원
     let assignedPlot: number | null = null;
@@ -444,16 +456,19 @@ export class NetworkManager {
 
     // 2. 신규 배정 필요한 경우 (사용 중인 대지 종합 수집)
     if (!assignedPlot || assignedPlot < 1 || assignedPlot > 16) {
-      const playersSnap = await get(ref(this.db, `rooms/${this.roomCode}/players`));
       const occupiedPlots = new Set<number>();
 
       // 1) 현재 접속 중인 플레이어들
-      if (playersSnap.exists()) {
-        const players = playersSnap.val();
-        for (const uid in players) {
-          if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
+      try {
+        const playersSnap = await get(ref(this.db, `rooms/${this.roomCode}/players`));
+        if (playersSnap.exists()) {
+          const players = playersSnap.val();
+          for (const uid in players) {
+            if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
+          }
         }
-      }
+      } catch (e) {}
+
       // 2) 이전에 배정된 기록들
       for (const key in assignedPlotsMap) {
         if (typeof assignedPlotsMap[key] === 'number') {
@@ -471,16 +486,20 @@ export class NetworkManager {
       }
     }
 
-    // 영구 배정 기록 저장
-    const updates: Record<string, any> = {
-      [applicantUid]: assignedPlot
-    };
-    if (applicantName) {
-      updates[applicantName] = assignedPlot;
+    // 영구 배정 기록 저장 시도 (보안 규칙 미적용 상태여도 승인 자체는 반드시 성공하도록 try-catch)
+    try {
+      const updates: Record<string, any> = {
+        [applicantUid]: assignedPlot
+      };
+      if (applicantName) {
+        updates[applicantName] = assignedPlot;
+      }
+      await update(assignedPlotsRef, updates);
+    } catch (e) {
+      console.warn('assignedPlots update skipped (rules not updated):', e);
     }
-    await update(assignedPlotsRef, updates);
 
-    // 승인 상태 전송
+    // 승인 상태 전송 (가장 핵심: 학생 화면이 바로 입장되도록 전송)
     const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`);
     await update(reqRef, {
       status: 'approved',
@@ -503,15 +522,19 @@ export class NetworkManager {
       plotId: clampedPlot
     });
 
-    // 2. 영구 대지 매핑 갱신
-    const assignedPlotsRef = ref(this.db, `rooms/${this.roomCode}/assignedPlots`);
-    const updates: Record<string, any> = {
-      [targetUid]: clampedPlot
-    };
-    if (targetName) {
-      updates[targetName] = clampedPlot;
+    // 2. 영구 대지 매핑 갱신 (보안 규칙 미적용 시에도 플레이어 설정은 완료되도록 안전 보호)
+    try {
+      const assignedPlotsRef = ref(this.db, `rooms/${this.roomCode}/assignedPlots`);
+      const updates: Record<string, any> = {
+        [targetUid]: clampedPlot
+      };
+      if (targetName) {
+        updates[targetName] = clampedPlot;
+      }
+      await update(assignedPlotsRef, updates);
+    } catch (e) {
+      console.warn('assignedPlots reassign skipped (rules not updated):', e);
     }
-    await update(assignedPlotsRef, updates);
   }
 
   /**
