@@ -94,15 +94,51 @@ export class HotbarUI {
   /**
    * 여유 공간이 있는지 확인 (스택 가능하거나 빈 슬롯이 있으면 true)
    */
-  public hasSpaceFor(type: BlockType | 'STICK', amount: number = 1): boolean {
-    if (type === 'STICK') {
-      const existing = this.slots.find(s => s.isItem && s.itemType === 'STICK' && s.count + amount <= 64);
+  public hasSpaceFor(type: BlockType | 'STICK' | 'RETURN_STONE', amount: number = 1): boolean {
+    if (type === 'STICK' || type === 'RETURN_STONE') {
+      const existing = this.slots.find(s => s.isItem && s.itemType === type && s.count + amount <= 64);
       if (existing) return true;
     } else {
       const existing = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type && s.count + amount <= 64);
       if (existing) return true;
     }
     return this.slots.some(s => s.count === 0 && !s.isTool && !s.isItem);
+  }
+
+  /**
+   * [요청 2]: 현재 선택된 슬롯의 아이템을 1개 (또는 전체) 버리기
+   */
+  public dropSelectedItem(all: boolean = false): InventorySlot | null {
+    const slot = this.getSelectedSlot();
+    if (!slot || slot.count <= 0) return null;
+
+    if (slot.isTool) {
+      // 도구는 1개 전량 버리기
+      const dropped: InventorySlot = { ...slot, count: 1 };
+      slot.count = 0;
+      slot.isTool = false;
+      slot.toolType = undefined;
+      slot.durability = undefined;
+      this.render();
+      if (this.onSelectChange) this.onSelectChange(this.getSelectedSlot());
+      return dropped;
+    }
+
+    const dropCount = all ? slot.count : 1;
+    const dropped: InventorySlot = {
+      ...slot,
+      count: dropCount
+    };
+
+    slot.count -= dropCount;
+    if (slot.count <= 0) {
+      slot.blockType = undefined;
+      slot.itemType = undefined;
+      slot.isItem = false;
+    }
+    this.render();
+    if (this.onSelectChange) this.onSelectChange(this.getSelectedSlot());
+    return dropped;
   }
 
   public addResource(type: BlockType, amount: number = 1): boolean {
@@ -135,7 +171,7 @@ export class HotbarUI {
     return false;
   }
 
-  public addItem(itemType: 'STICK', amount: number = 1): boolean {
+  public addItem(itemType: 'STICK' | 'RETURN_STONE', amount: number = 1): boolean {
     let slot = this.slots.find(s => s.isItem && s.itemType === itemType && s.count < 64);
     if (!slot) {
       slot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
@@ -143,8 +179,8 @@ export class HotbarUI {
         slot.isTool = false;
         slot.isItem = true;
         slot.itemType = itemType;
-        slot.itemName = '막대기';
-        slot.itemEmoji = '🥢';
+        slot.itemName = itemType === 'STICK' ? '막대기' : '마을 귀환석';
+        slot.itemEmoji = itemType === 'STICK' ? '🥢' : '🧭';
         slot.count = 0;
       }
     }

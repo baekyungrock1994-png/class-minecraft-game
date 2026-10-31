@@ -79,6 +79,8 @@ export class PlayerController {
   public onOpenCraftingTable?: () => void;
   public onOpenChest?: (chestKey: string) => void;
   public onUseItem?: () => boolean; // 핫바 아이템(마을 귀환석 등) 우클릭 사용 콜백
+  public onDropItem?: (all: boolean) => void; // Q 키로 손에 든 아이템 버리기 콜백
+  public onAttackPlayer?: () => void; // 투기장 배틀 중 상대방 타격 콜백
 
   // 평화 모드 (PVP 원천 차단)
   public readonly isPvpAllowed: boolean = false;
@@ -217,6 +219,16 @@ export class PlayerController {
         }
       }
 
+      // [요청 2]: 'Q' 키를 누르면 현재 손에 든 아이템 1개 (Ctrl/Shift+Q는 묶음 전체) 버리기
+      if (e.code === 'KeyQ' && !isInputActive && !this.isModalOpen && this.isLocked) {
+        e.preventDefault();
+        if (this.onDropItem) {
+          this.onDropItem(e.ctrlKey || e.shiftKey);
+          this.viewModel.triggerSwing();
+        }
+        return;
+      }
+
       // 모달창이 열려있거나 텍스트 입력 중일 때는 게임 내 이동 키 입력 차단
       if (isInputActive || this.isModalOpen) {
         return;
@@ -260,6 +272,9 @@ export class PlayerController {
       if (e.button === 0) {
         this.isMining = true;
         this.viewModel.triggerSwing();
+        if (this.onAttackPlayer) {
+          this.onAttackPlayer();
+        }
       } else if (e.button === 2) {
         if (this.onUseItem && this.onUseItem()) {
           return;

@@ -139,6 +139,18 @@ export class NetworkManager {
     return this.db;
   }
 
+  public getRemotePlayer(uid: string) {
+    return this.remotePlayers.get(uid) || null;
+  }
+
+  public getRemotePlayersList(): PlayerNetworkData[] {
+    const list: PlayerNetworkData[] = [];
+    for (const [, remote] of this.remotePlayers.entries()) {
+      list.push(remote.data);
+    }
+    return list;
+  }
+
   /**
    * 1. [교사용] 5자리 랜덤 코드로 새로운 방 생성
    */

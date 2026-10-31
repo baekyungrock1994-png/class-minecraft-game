@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { BlockType, ToolType, BLOCK_METAS, TOOL_METAS } from '../core/Constants.ts';
+import { BlockType, ToolType, WorldType, BLOCK_METAS, TOOL_METAS } from '../core/Constants.ts';
 import { HotbarUI } from '../ui/Hotbar.ts';
 import { createBlockTextureAtlas, getTileIndexForBlockFace, getAtlasUV } from '../core/TextureAtlas.ts';
 
 export interface DropItemData {
   type: 'block' | 'item' | 'tool';
+  worldType: WorldType;
   blockType?: BlockType;
-  itemType?: 'STICK';
+  itemType?: 'STICK' | 'RETURN_STONE';
   toolType?: ToolType;
   count: number;
 }
@@ -18,12 +19,14 @@ export class FloatingItemEntity {
   public baseY: number;
   public createdAt: number;
   public isBeingPickedUp: boolean = false;
+  public pickupCooldown: number = 0; // 초 단위 픽업 지연 (아이템을 직접 버렸을 때 즉시 재획득 방지)
 
-  constructor(id: string, data: DropItemData, x: number, y: number, z: number, sharedAtlas: THREE.CanvasTexture) {
+  constructor(id: string, data: DropItemData, x: number, y: number, z: number, sharedAtlas: THREE.CanvasTexture, pickupDelay: number = 0) {
     this.id = id;
     this.data = data;
     this.baseY = y;
     this.createdAt = performance.now();
+    this.pickupCooldown = pickupDelay;
 
     this.mesh = new THREE.Group();
     this.mesh.position.set(x, y, z);
@@ -58,7 +61,6 @@ export class FloatingItemEntity {
         const [u1, v1] = getAtlasUV(tileIdx, 1, 1);
         const [u2, v2] = getAtlasUV(tileIdx, 0, 0);
         const [u3, v3] = getAtlasUV(tileIdx, 1, 0);
-        // BoxGeometry face UV 순서: (0,1), (1,1), (0,0), (1,0)
         uvs.push(u0, v0, u1, v1, u2, v2, u3, v3);
       }
 
@@ -72,14 +74,23 @@ export class FloatingItemEntity {
 
       return new THREE.Mesh(geo, mat);
     } else {
-      // 도구 또는 막대기
-      const color = data.itemType === 'STICK' ? 0x92400e : 0x38bdf8;
+      // 도구 또는 특수 아이템
+      let color = 0x38bdf8;
+      if (data.itemType === 'STICK') {
+        color = 0x92400e;
+      } else if (data.itemType === 'RETURN_STONE') {
+        color = 0x10b981;
+      }
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(geo, mat);
     }
   }
 
   public update(delta: number, time: number): void {
+    if (this.pickupCooldown > 0) {
+      this.pickupCooldown = Math.max(0, this.pickupCooldown - delta);
+    }
+
     // 1. 부드러운 Y축 자전
     this.mesh.rotation.y += delta * 2.4;
 
@@ -103,23 +114,32 @@ export class ItemDropManager {
   }
 
   /**
-   * 월드에 아이템 드롭 (인벤토리가 꽉 찼거나 조합 시 자리가 없을 때)
+   * 월드에 아이템 드롭 (인벤토리가 꽉 찼거나 조합 시 자리가 없거나, Q키로 버렸을 때)
    */
-  public spawnDropItem(data: DropItemData, x: number, y: number, z: number): void {
+  public spawnDropItem(data: DropItemData, x: number, y: number, z: number, pickupDelay: number = 0): void {
     const id = `drop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     // 살짝 흩뿌려지는 랜덤 오프셋
-    const rx = x + (Math.random() - 0.5) * 0.8;
-    const rz = z + (Math.random() - 0.5) * 0.8;
-    const item = new FloatingItemEntity(id, data, rx, y + 0.35, rz, this.sharedAtlas);
+    const rx = x + (Math.random() - 0.5) * 0.6;
+    const rz = z + (Math.random() - 0.5) * 0.6;
+    const item = new FloatingItemEntity(id, data, rx, y + 0.35, rz, this.sharedAtlas, pickupDelay);
 
     this.scene.add(item.mesh);
     this.items.set(id, item);
   }
 
   /**
-   * 매 프레임 업데이트: 부유 애니메이션 및 플레이어 자석 픽업
+   * 월드 이동 시 가시성 필터링
    */
-  public update(delta: number, playerPos: THREE.Vector3, hotbar: HotbarUI): void {
+  public filterByWorld(currentWorldType: WorldType): void {
+    for (const item of this.items.values()) {
+      item.mesh.visible = (item.data.worldType === currentWorldType);
+    }
+  }
+
+  /**
+   * 매 프레임 업데이트: 현재 월드(town vs resource) 격리 + 부유 애니메이션 및 플레이어 자석 픽업
+   */
+  public update(delta: number, playerPos: THREE.Vector3, hotbar: HotbarUI, currentWorldType: WorldType): void {
     const time = performance.now();
     const feetY = playerPos.y - 1.8;
     const playerCenter = new THREE.Vector3(playerPos.x, feetY + 0.8, playerPos.z);
@@ -128,7 +148,19 @@ export class ItemDropManager {
     const collectRadiusSq = 0.55 * 0.55; // 0.55m 내 도달 시 인벤토리 적립
 
     for (const [id, item] of this.items.entries()) {
+      // 1. [요청 1]: 월드 격리 - 자원 구역의 아이템은 자원 구역에만, 마을의 아이템은 마을에만 노출 및 픽업!
+      if (item.data.worldType !== currentWorldType) {
+        item.mesh.visible = false;
+        continue;
+      }
+      item.mesh.visible = true;
+
       item.update(delta, time);
+
+      // 버리기 직후 쿨다운 중이면 자석 흡수 보류
+      if (item.pickupCooldown > 0) {
+        continue;
+      }
 
       // 플레이어와의 거리 계산
       const distSq = item.mesh.position.distanceToSquared(playerCenter);
@@ -140,6 +172,8 @@ export class ItemDropManager {
           canTake = hotbar.hasSpaceFor(item.data.blockType, item.data.count);
         } else if (item.data.type === 'item' && item.data.itemType === 'STICK') {
           canTake = hotbar.hasSpaceFor('STICK', item.data.count);
+        } else if (item.data.type === 'item' && item.data.itemType === 'RETURN_STONE') {
+          canTake = hotbar.hasSpaceFor('RETURN_STONE', item.data.count);
         } else if (item.data.type === 'tool' && item.data.toolType) {
           canTake = hotbar.slots.some(s => s.count === 0 && !s.isTool && !s.isItem);
         }
@@ -164,6 +198,10 @@ export class ItemDropManager {
               success = hotbar.addItem('STICK', item.data.count);
               itemName = '막대기';
               emoji = '🥢';
+            } else if (item.data.type === 'item' && item.data.itemType === 'RETURN_STONE') {
+              success = hotbar.addItem('RETURN_STONE', item.data.count);
+              itemName = '마을 귀환석';
+              emoji = '🧭';
             } else if (item.data.type === 'tool' && item.data.toolType) {
               success = hotbar.addTool(item.data.toolType);
               const meta = TOOL_METAS[item.data.toolType];

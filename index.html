@@ -74,6 +74,9 @@
           <span class="pill-icon">✈️</span>
           <span>비행 중 (F)</span>
         </div>
+        <button id="btn-open-arena-battle" class="arena-toggle-btn hidden" tabindex="-1" title="외곽 투기장 배틀 신청하기">
+          ⚔️ 배틀 신청
+        </button>
         <button id="btn-open-crafting" class="craft-toggle-btn" tabindex="-1" title="조합대 열기 (단축키: E 또는 C)">
           🪑 조합/제작
         </button>
@@ -266,7 +269,8 @@
     <div id="controls-hint-body" class="controls-hint-body">
       <div class="hint-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 / <kbd>Space</kbd> 점프</div>
       <div class="hint-item"><kbd>방향키</kbd> 시점 회전 (마우스 대체)</div>
-      <div class="hint-item"><kbd>좌클릭</kbd> 또는 <kbd>,</kbd> 채굴 / <kbd>우클릭</kbd> 또는 <kbd>/</kbd> 설치</div>
+      <div class="hint-item"><kbd>좌클릭</kbd> 또는 <kbd>,</kbd> 채굴·공격 / <kbd>우클릭</kbd> 또는 <kbd>/</kbd> 설치</div>
+      <div class="hint-item"><kbd>Q</kbd> 손에 든 아이템 버리기</div>
       <div class="hint-item"><kbd>T</kbd> 칭찬 소통 채팅 / <kbd>1</kbd>~<kbd>9</kbd> 블록 선택</div>
       <div class="hint-item return-key-item"><kbd>[</kbd> 평지마을 귀환 / <kbd>9</kbd> 귀환석🧭</div>
       <div class="hint-item"><kbd>E</kbd> 또는 <kbd>C</kbd> 조합대 / <kbd>F</kbd> 비행(선생님)</div>
@@ -487,6 +491,127 @@
 
       <div class="chest-footer">
         <span class="chest-tip">💡 슬롯을 클릭하면 상자와 핫바 사이에 아이템을 자유롭게 보관하거나 꺼낼 수 있습니다.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚔️ 외곽 배틀 투기장: 배틀 신청 모달 -->
+  <div id="battle-request-modal" class="modal-backdrop hidden">
+    <div class="modal-card battle-card">
+      <div class="modal-header battle-header">
+        <div class="modal-title">
+          <span class="battle-title-icon">⚔️</span>
+          <div>
+            <h2>배틀 투기장 결투 신청</h2>
+            <p class="modal-subtitle">외곽 투기장에서 다른 플레이어와 아이템을 걸고 결투를 신청합니다</p>
+          </div>
+        </div>
+        <button id="btn-close-battle-request" class="modal-close-btn" type="button">✕</button>
+      </div>
+
+      <div class="battle-modal-body">
+        <div class="battle-form-group">
+          <label class="battle-label">🎯 대결할 상대 플레이어 선택</label>
+          <select id="battle-target-select" class="battle-select">
+            <option value="">대결 상대를 선택하세요...</option>
+          </select>
+        </div>
+
+        <div class="battle-form-group">
+          <label class="battle-label">💎 베팅할 자원 / 아이템 선택 (동일 수량 필수)</label>
+          <div class="battle-bet-row">
+            <select id="battle-bet-item-select" class="battle-select">
+              <option value="WOOD">🪵 참나무 원목</option>
+              <option value="STONE">🪨 돌 블록</option>
+              <option value="PLANK">📦 가공 목재</option>
+              <option value="DIRT">🟫 흙 블록</option>
+              <option value="STICK">🥢 막대기</option>
+            </select>
+            <input type="number" id="battle-bet-count-input" class="battle-number-input" min="1" max="64" value="5" />
+            <span class="battle-count-unit">개</span>
+          </div>
+          <p class="battle-bet-hint">⚠️ 상대방도 동일한 자원을 보유하고 수락해야 하며, 선생님의 최종 승인 후 결투가 시작됩니다.</p>
+        </div>
+
+        <div class="battle-action-row">
+          <button id="btn-submit-battle-request" class="btn-battle-submit" type="button">⚔️ 배틀 신청하기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚔️ 배틀 신청 수신 토스트 (상대방 화면) -->
+  <div id="battle-incoming-toast" class="battle-incoming-toast hidden">
+    <div class="battle-toast-content">
+      <span class="battle-toast-icon">⚔️</span>
+      <div class="battle-toast-text">
+        <div id="battle-toast-msg" class="battle-toast-title">플레이어가 배틀을 신청했습니다!</div>
+        <div id="battle-toast-detail" class="battle-toast-sub">베팅: 참나무 원목 5개</div>
+      </div>
+    </div>
+    <div class="battle-toast-actions">
+      <button id="btn-battle-accept" class="btn-battle-toast-accept" type="button">⚔️ 동일 자원 걸고 수락</button>
+      <button id="btn-battle-reject" class="btn-battle-toast-reject" type="button">거절</button>
+    </div>
+  </div>
+
+  <!-- 👑 교사 배틀 최종 승인 모달 -->
+  <div id="battle-teacher-modal" class="modal-backdrop hidden">
+    <div class="modal-card teacher-battle-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>👑</span>
+          <div>
+            <h2>투기장 배틀 승인 요청</h2>
+            <p class="modal-subtitle">두 학생 간의 결투 신청이 접수되었습니다. 최종 승인하시겠습니까?</p>
+          </div>
+        </div>
+        <button id="btn-close-teacher-battle" class="modal-close-btn" type="button">✕</button>
+      </div>
+
+      <div class="teacher-battle-body">
+        <div class="battle-vs-container">
+          <div class="battle-vs-player">
+            <span class="vs-avatar">🥊</span>
+            <div id="vs-player1-name" class="vs-name">학생A</div>
+          </div>
+          <div class="vs-badge">VS</div>
+          <div class="battle-vs-player">
+            <span class="vs-avatar">🥊</span>
+            <div id="vs-player2-name" class="vs-name">학생B</div>
+          </div>
+        </div>
+
+        <div id="teacher-battle-bet-info" class="teacher-battle-bet-info">
+          걸린 베팅: 🪵 참나무 원목 10개 (승자 전액 획득)
+        </div>
+
+        <div class="teacher-battle-actions">
+          <button id="btn-teacher-approve-battle" class="btn-teacher-approve-battle" type="button">👑 배틀 승인 및 결투 시작</button>
+          <button id="btn-teacher-cancel-battle" class="btn-teacher-cancel-battle" type="button">결투 불허 (취소 및 환불)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚔️ 배틀 진행 중 실시간 HUD (화면 상단) -->
+  <div id="battle-hud" class="battle-hud hidden">
+    <div class="battle-hud-header">⚔️ 투기장 배틀 진행 중 ⚔️</div>
+    <div class="battle-hud-fighters">
+      <div class="fighter-hp-box fighter-left">
+        <div id="fighter1-name-hud" class="fighter-name">선수 1</div>
+        <div class="fighter-bar-track">
+          <div id="fighter1-hp-fill" class="fighter-bar-fill" style="width: 100%;"></div>
+        </div>
+        <div id="fighter1-hp-text" class="fighter-hp-text">100 HP</div>
+      </div>
+      <div class="battle-hud-center-vs">VS</div>
+      <div class="fighter-hp-box fighter-right">
+        <div id="fighter2-name-hud" class="fighter-name">선수 2</div>
+        <div class="fighter-bar-track">
+          <div id="fighter2-hp-fill" class="fighter-bar-fill" style="width: 100%;"></div>
+        </div>
+        <div id="fighter2-hp-text" class="fighter-hp-text">100 HP</div>
       </div>
     </div>
   </div>

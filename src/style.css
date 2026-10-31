@@ -3057,5 +3057,373 @@ kbd {
   text-align: center;
 }
 
+/* =========================================================
+   외곽 배틀 투기장 (Arena Battle) UI 스타일
+   ========================================================= */
+.arena-toggle-btn {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  border: 1.5px solid #ef4444;
+  color: #ffffff;
+  border-radius: 9999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.4);
+  transition: all 0.2s ease;
+  animation: pulse-arena 2s infinite;
+}
+
+.arena-toggle-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.6);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+@keyframes pulse-arena {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.battle-card {
+  max-width: 440px;
+  background: #0f172a;
+  border: 2px solid #ef4444;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(239, 68, 68, 0.25);
+}
+
+.battle-header {
+  border-bottom: 1.5px solid rgba(239, 68, 68, 0.3);
+}
+
+.battle-title-icon {
+  font-size: 24px;
+}
+
+.battle-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.battle-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.battle-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.battle-select {
+  background: #1e293b;
+  border: 1.5px solid #475569;
+  color: #ffffff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.battle-select:focus {
+  border-color: #ef4444;
+}
+
+.battle-bet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.battle-number-input {
+  width: 70px;
+  background: #1e293b;
+  border: 1.5px solid #475569;
+  color: #ffffff;
+  padding: 9px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+}
+
+.battle-count-unit {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.battle-bet-hint {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  background: rgba(239, 68, 68, 0.12);
+  border-left: 3px solid #ef4444;
+  padding: 7px 10px;
+  border-radius: 4px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.btn-battle-submit {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+}
+
+.btn-battle-submit:hover {
+  background: linear-gradient(135deg, #f87171, #ef4444);
+  transform: translateY(-2px);
+}
+
+/* 배틀 수신 토스트 */
+.battle-incoming-toast {
+  position: fixed;
+  top: 75px;
+  right: 25px;
+  background: #0f172a;
+  border: 2px solid #ef4444;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(239, 68, 68, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 9999;
+  min-width: 310px;
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.battle-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.battle-toast-icon {
+  font-size: 28px;
+}
+
+.battle-toast-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.battle-toast-sub {
+  font-size: 12px;
+  color: #fca5a5;
+  margin-top: 2px;
+}
+
+.battle-toast-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-battle-toast-accept {
+  flex: 1;
+  background: #dc2626;
+  border: 1px solid #ef4444;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-battle-toast-accept:hover {
+  background: #ef4444;
+}
+
+.btn-battle-toast-reject {
+  background: #334155;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* 교사 승인 모달 */
+.teacher-battle-card {
+  max-width: 480px;
+  background: #0f172a;
+  border: 2px solid #f59e0b;
+}
+
+.teacher-battle-body {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.battle-vs-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: #1e293b;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+}
+
+.battle-vs-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.vs-avatar {
+  font-size: 30px;
+}
+
+.vs-name {
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.vs-badge {
+  font-size: 20px;
+  font-weight: 900;
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+}
+
+.teacher-battle-bet-info {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid #f59e0b;
+  color: #fde68a;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.teacher-battle-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-teacher-approve-battle {
+  flex: 1.4;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.btn-teacher-cancel-battle {
+  flex: 1;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 배틀 진행 중 실시간 HUD */
+.battle-hud {
+  position: fixed;
+  top: 55px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 2px solid #ef4444;
+  border-radius: 14px;
+  padding: 10px 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(239, 68, 68, 0.3);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 420px;
+}
+
+.battle-hud-header {
+  font-size: 12px;
+  font-weight: 900;
+  color: #fca5a5;
+  letter-spacing: 1px;
+}
+
+.battle-hud-fighters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+}
+
+.fighter-hp-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fighter-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.fighter-bar-track {
+  width: 100%;
+  height: 12px;
+  background: #334155;
+  border-radius: 9999px;
+  overflow: hidden;
+  border: 1px solid #475569;
+}
+
+.fighter-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444, #22c55e);
+  transition: width 0.25s ease;
+}
+
+.fighter-hp-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.battle-hud-center-vs {
+  font-size: 16px;
+  font-weight: 900;
+  color: #ef4444;
+}
+
+
 
 

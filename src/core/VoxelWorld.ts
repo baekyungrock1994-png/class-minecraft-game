@@ -375,6 +375,10 @@ export class VoxelWorld {
       if (Math.abs(ix) <= 3 && Math.abs(iz) <= 3 && iy <= 8) {
         return true;
       }
+      // [요청 3]: 외곽 배틀 투기장 (x: -11~11, z: 41~63, y: 0~10) - 그 어떤 방법으로도 훼손/파괴 불가!
+      if (ix >= -11 && ix <= 11 && iz >= 41 && iz <= 63 && iy <= 10) {
+        return true;
+      }
     }
 
     // 3. 자원 구역 (resource): 마을 복귀 신성한 제단 (x: -3~+3, z: -7~-1, y: 0~8) 파괴 불가
@@ -385,6 +389,16 @@ export class VoxelWorld {
     }
 
     return false;
+  }
+
+  /**
+   * 해당 좌표가 외곽 배틀 투기장 내부 구역인지 검사
+   */
+  public isArenaZone(x: number, z: number): boolean {
+    if (this.currentWorldType !== 'town') return false;
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    return ix >= -10 && ix <= 10 && iz >= 42 && iz <= 62;
   }
 
   /**
@@ -528,6 +542,60 @@ export class VoxelWorld {
     this.townPortals = [
       { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0 }
     ];
+
+    // [요청 3]: 마을 외곽 배틀 투기장 (Battle Arena) 건축
+    // 1) 마을 북쪽 도로 -> 투기장 입구 연결 도로 (x: -1~2, z: 28~41)
+    for (let x = -1; x <= 2; x++) {
+      for (let z = 28; z <= 41; z++) {
+        this.townBlocks.set(this.getKey(x, 4, z), BlockType.STONE);
+        for (let y = 5; y <= 8; y++) {
+          this.townBlocks.delete(this.getKey(x, y, z));
+        }
+      }
+    }
+
+    // 2) 투기장 바닥 (x: -10~10, z: 42~62)
+    for (let x = -10; x <= 10; x++) {
+      for (let z = 42; z <= 62; z++) {
+        // 하부 단단한 석재 기반
+        for (let y = 0; y <= 3; y++) {
+          this.townBlocks.set(this.getKey(x, y, z), BlockType.STONE);
+        }
+        // 결투장 바닥: 중심 원/라인은 마그마, 외곽은 견고한 돌 블록
+        const distFromCenter = Math.sqrt(x * x + (z - 52) * (z - 52));
+        const isRing = Math.abs(distFromCenter - 6) < 0.8 || (Math.abs(x) < 0.8 && distFromCenter < 8);
+        this.townBlocks.set(this.getKey(x, 4, z), isRing ? BlockType.MAGMA : BlockType.STONE);
+
+        // 내부 공간 에어 확보 (y: 5~12)
+        for (let y = 5; y <= 12; y++) {
+          this.townBlocks.delete(this.getKey(x, y, z));
+        }
+      }
+    }
+
+    // 3) 투기장 둘레 벽 (x: -11, 11 / z: 41, 63, 높이 y: 5~7)
+    for (let x = -11; x <= 11; x++) {
+      for (let z = 41; z <= 63; z++) {
+        const isBorder = (x === -11 || x === 11 || z === 41 || z === 63);
+        if (isBorder) {
+          // 남쪽 입구 게이트 (x: -1~2, z: 41)는 문으로 뚫어둠
+          if (z === 41 && x >= -1 && x <= 2) {
+            // 바닥 및 상단 아치 지붕
+            this.townBlocks.set(this.getKey(x, 4, z), BlockType.STONE);
+            this.townBlocks.set(this.getKey(x, 8, z), BlockType.STONE);
+            this.townBlocks.set(this.getKey(x, 9, z), BlockType.MAGMA);
+            continue;
+          }
+
+          // 벽 쌓기 (높이 3블록: Y=5, 6, 7)
+          this.townBlocks.set(this.getKey(x, 5, z), BlockType.STONE);
+          this.townBlocks.set(this.getKey(x, 6, z), BlockType.STONE);
+          // 4모서리 및 4칸 간격으로 마그마 횃불 룬 기둥
+          const isPillar = (Math.abs(x) % 4 === 0 || (z - 41) % 4 === 0);
+          this.townBlocks.set(this.getKey(x, 7, z), isPillar ? BlockType.MAGMA : BlockType.STONE);
+        }
+      }
+    }
   }
 
   /**
