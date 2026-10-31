@@ -13,6 +13,7 @@ import {
   PlotInfo,
   WorldType
 } from './Constants.ts';
+import { createBlockTextureAtlas, getTileIndexForBlockFace, getAtlasUV } from './TextureAtlas.ts';
 
 // 6개 면 정의 (Hidden Face Culling용)
 interface FaceSpec {
@@ -147,7 +148,11 @@ export class VoxelWorld {
     this.scene = scene;
     this.blocks = this.townBlocks;
 
-    this.sharedMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const blockAtlas = createBlockTextureAtlas();
+    this.sharedMaterial = new THREE.MeshLambertMaterial({
+      map: blockAtlas,
+      vertexColors: true,
+    });
     this.scene.add(this.townChunkGroup);
     this.scene.add(this.resourceChunkGroup);
 
@@ -536,14 +541,19 @@ export class VoxelWorld {
 
     for (let x = -half; x < half; x++) {
       for (let z = -half; z < half; z++) {
+        // 월드 최하층 바닥 기반암 (Y=0)
         this.resourceBlocks.set(this.getKey(x, 0, z), BlockType.STONE);
+
+        // [지시사항 1]: 기반암 바로 위(Y=1)는 끓어오르는 지하 심층 마그마 블록으로 설정 (지표면에는 노출 안 됨)
+        this.resourceBlocks.set(this.getKey(x, 1, z), BlockType.MAGMA);
 
         // 아담한 56x56 크기에 맞게 지형 주파수 조정
         const hill = Math.sin(x * 0.16) * Math.cos(z * 0.16) * 4.0 +
                      Math.sin(x * 0.32 + z * 0.24) * 1.8;
-        const groundY = Math.max(2, Math.min(WORLD_HEIGHT - 6, Math.round(5 + hill)));
+        const groundY = Math.max(3, Math.min(WORLD_HEIGHT - 6, Math.round(5 + hill)));
 
-        for (let y = 1; y <= groundY; y++) {
+        // Y=2부터 지표면(groundY)까지 흙과 돌, 잔디 배치
+        for (let y = 2; y <= groundY; y++) {
           if (y < groundY - 2) {
             this.resourceBlocks.set(this.getKey(x, y, z), BlockType.STONE);
           } else if (y < groundY) {
@@ -565,12 +575,6 @@ export class VoxelWorld {
           for (let wy = groundY + 1; wy <= SEA_LEVEL; wy++) {
             this.resourceBlocks.set(this.getKey(x, wy, z), BlockType.WATER);
           }
-        }
-
-        // 광맥 (아담한 맵에 맞게 풍성하게 분포)
-        const oreSeed = Math.sin(x * 45.123 + z * 89.456);
-        if (oreSeed > 0.91 && groundY >= 3) {
-          this.resourceBlocks.set(this.getKey(x, groundY, z), BlockType.MAGMA);
         }
 
         // [지시사항 2]: 참나무 숲 후보지 수집 (완만한 잔디 언덕 지형)
@@ -840,7 +844,7 @@ export class VoxelWorld {
     const positions: number[] = [];
     const normals: number[] = [];
     const colors: number[] = [];
-    const tempColor = new THREE.Color();
+    const uvs: number[] = [];
 
     const getBlockFromMap = (x: number, y: number, z: number): BlockType => {
       if (y < 0 || y >= WORLD_HEIGHT) return BlockType.AIR;
@@ -853,8 +857,6 @@ export class VoxelWorld {
           const blockType = getBlockFromMap(x, y, z);
           if (blockType === BlockType.AIR || blockType === BlockType.WATER) continue;
 
-          const meta = BLOCK_METAS[blockType];
-
           for (const face of FACES) {
             const nx = x + face.dir[0];
             const ny = y + face.dir[1];
@@ -864,20 +866,26 @@ export class VoxelWorld {
             const neighborMeta = BLOCK_METAS[neighbor];
 
             if (neighbor === BlockType.AIR || (neighborMeta.transparent && neighbor !== blockType)) {
-              let col = meta.color;
-              if (face.dir[1] === 1 && meta.topColor) col = meta.topColor;
-              if (face.dir[1] === -1 && meta.bottomColor) col = meta.bottomColor;
+              // 블록 타입과 면 방향(윗면, 옆면, 밑면)에 따른 텍스처 아틀라스 타일 결정
+              const tileIndex = getTileIndexForBlockFace(blockType, face.dir[1]);
 
-              tempColor.setHex(col);
-              if (face.dir[1] === 1) tempColor.multiplyScalar(1.0);
-              else if (face.dir[1] === -1) tempColor.multiplyScalar(0.5);
-              else if (face.dir[0] !== 0) tempColor.multiplyScalar(0.75);
-              else tempColor.multiplyScalar(0.85);
+              // 마인크래프트 정통 면별 음영 (윗면 1.0, 아랫면 0.55, 동서 0.75, 남북 0.85)
+              let shade = 0.85;
+              if (face.dir[1] === 1) shade = 1.0;
+              else if (face.dir[1] === -1) shade = 0.55;
+              else if (face.dir[0] !== 0) shade = 0.75;
+              else shade = 0.85;
 
-              for (const corner of face.corners) {
+              for (let i = 0; i < 6; i++) {
+                const corner = face.corners[i];
                 positions.push(x + corner[0], y + corner[1], z + corner[2]);
                 normals.push(face.dir[0], face.dir[1], face.dir[2]);
-                colors.push(tempColor.r, tempColor.g, tempColor.b);
+                colors.push(shade, shade, shade);
+
+                const localU = face.uv[i * 2 + 0];
+                const localV = face.uv[i * 2 + 1];
+                const [u, v] = getAtlasUV(tileIndex, localU, localV);
+                uvs.push(u, v);
               }
             }
           }
@@ -909,6 +917,7 @@ export class VoxelWorld {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
   }
