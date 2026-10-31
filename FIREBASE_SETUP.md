@@ -56,60 +56,69 @@ Firebase Console의 **[Realtime Database] ➔ [규칙(Rules)]** 탭에 아래 JS
         // 방 데이터는 인증된 사용자(익명 로그인 포함)만 읽기 가능
         ".read": "auth != null",
 
-        // 1. 방 기본 메타데이터 및 교사 권한
+        // 1. 방 메타데이터 (방 생성 및 호스트 관리)
         "meta": {
-          // 방 생성이거나 교사 비밀번호가 일치할 때만 메타 수정/폭파 가능
-          ".write": "auth != null && (!data.exists() || data.child('teacherPin').val() === newData.child('teacherPin').val())"
+          ".write": "auth != null"
         },
 
-        // 2. 전역 게임 상태 (진행 단계, 환경 지표)
-        "gameState": {
-          ".write": "auth != null",
-          "globalStats": {
-            // 학생들은 벌목/굴착 수치를 1씩만 증가시킬 수 있음 (임의의 9999 조작 원천 차단)
-            "treesCut": {
-              ".validate": "newData.isNumber() && (!data.exists() || newData.val() === data.val() + 1)"
-            },
-            "dirtDug": {
-              ".validate": "newData.isNumber() && (!data.exists() || newData.val() === data.val() + 1)"
-            }
-          }
+        // 2. 학생 입장 승인 대기열 (학생 신청/대기 취소, 교사 승인/거절)
+        "joinRequests": {
+          ".write": "auth != null"
         },
 
-        // 3. 학생 구역(Plot) 배정 정보
-        "plots": {
-          "$plotId": {
-            // 빈 구역을 최초 배정받거나, 본인 계정 정보일 때만 쓰기 가능
-            ".write": "auth != null && (!data.exists() || data.child('assignedUid').val() === auth.uid)"
-          }
-        },
-
-        // 4. 플레이어 실시간 위치 및 상태
+        // 3. 플레이어 접속 상태 및 위치 (학생 위치 동기화, 교사의 강퇴/닉네임 관리)
         "players": {
-          "$uid": {
-            // 오직 본인 UID 노드만 위치와 모션을 업데이트 가능
-            ".write": "auth != null && auth.uid === $uid"
-          }
+          ".write": "auth != null"
         },
 
-        // 5. 블록 설치/파괴 델타 (가장 중요한 테러 방지 구역)
+        // 4. 강제 추방 목록 (교사 등록, 학생 확인)
+        "kicked": {
+          ".write": "auth != null"
+        },
+
+        // 5. 블록 설치/파괴 델타 및 마을 전체 리셋
         "worldDeltas": {
-          "$blockKey": {
-            // 블록 설치/파괴 쓰기 조건:
-            // (1) 채굴: 공기(air)로 변경하는 것은 누구나 가능 (공유지의 비극)
-            // (2) 건축: 블록을 설치할 때는 반드시 본인의 사유지(Plot) 경계 내부여야 함 (클라이언트 검증 + 룰 보조)
-            // (3) 교사가 '마을 폭파' 시 전체 삭제 허용
-            ".write": "auth != null"
-          }
+          ".write": "auth != null"
         },
 
-        // 6. 이모지(Emote) 이벤트
+        // 6. 특정 대지(구역) 초기화 이벤트
+        "plotResetEvent": {
+          ".write": "auth != null"
+        },
+
+        // 7. 실시간 칭찬/긍정 채팅
+        "chats": {
+          ".write": "auth != null"
+        },
+
+        // 8. 전역 게임 상태 (진행 단계, 자원 통계)
+        "gameState": {
+          ".write": "auth != null"
+        },
+
+        // 9. 학생 구역(Plot) 배정 정보 & 영구 보존 대지 매핑 (재접속 시 유지용)
+        "plots": {
+          ".write": "auth != null"
+        },
+        "assignedPlots": {
+          ".write": "auth != null"
+        },
+
+        // 10. 이모지(Emote) 이벤트
         "emotes": {
-          "$uid": {
-            ".write": "auth != null && auth.uid === $uid"
-          }
+          ".write": "auth != null"
+        },
+
+        // 11. 청크 스냅샷
+        "chunks": {
+          ".write": "auth != null"
         }
       }
+    },
+    // 교사용 생성 마을 목록 보관함 (이름/PIN 기반 조회 및 복구)
+    "teachers": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }

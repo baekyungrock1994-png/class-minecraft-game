@@ -3,6 +3,7 @@ import {
   BlockType,
   BLOCK_METAS,
   WORLD_SIZE,
+  RESOURCE_WORLD_SIZE,
   CHUNK_SIZE,
   WORLD_HEIGHT,
   SEA_LEVEL,
@@ -93,8 +94,10 @@ export class VoxelWorld {
   public currentWorldType: WorldType = 'town';
   public plots: PlotInfo[] = [];
 
-  // 각 대지별 자원 구역 이동 문(포탈) 및 자원 구역 복귀 문
-  public townPortals: PortalInfo[] = [];
+  // 마을 중앙 광장 신성한 차원문 제단 1개 및 자원 구역 복귀 문
+  public townPortals: PortalInfo[] = [
+    { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0.5 }
+  ];
   public resourceReturnPortal: PortalInfo = { name: '마을 복귀 문', x: 0.5, y: 5, z: -3.5 };
 
   // 청크 기반 지형 분할 렌더러 (평지 마을 & 자원 구역 독립 캐싱 -> 월드 전환 렉 0ms)
@@ -227,7 +230,7 @@ export class VoxelWorld {
    * 자원 구역 자연 웅덩이/호수 위에만 맞춤형 수면 메시 생성
    */
   private buildResourceWaterMesh(material: THREE.Material): THREE.Mesh {
-    const half = Math.floor(WORLD_SIZE / 2);
+    const half = Math.floor(RESOURCE_WORLD_SIZE / 2);
     const positions: number[] = [];
     const normals: number[] = [];
     const uvs: number[] = [];
@@ -271,11 +274,12 @@ export class VoxelWorld {
    * 전체 월드가 아닌, 해당 블록이 속한 16x16 청크만 즉시 재구성하므로 0.1ms 이내로 부드럽게 완료됨!
    */
   public setBlock(x: number, y: number, z: number, type: BlockType): void {
+    const numType = Number(type);
     const key = this.getKey(x, y, z);
-    if (type === BlockType.AIR) {
+    if (numType === BlockType.AIR || isNaN(numType)) {
       this.blocks.delete(key);
     } else {
-      this.blocks.set(key, type);
+      this.blocks.set(key, numType);
     }
 
     // 변경된 블록이 속한 청크 리빌드
@@ -321,15 +325,6 @@ export class VoxelWorld {
           centerZ: (minZ + maxZ) / 2,
         });
 
-        // 각 대지의 입구 모서리에 "자원 구역 이동 문" 배치
-        this.townPortals.push({
-          plotId: id,
-          name: `대지 #${id} 자원문`,
-          x: minX + 1.5,
-          y: 4,
-          z: minZ + 1.5,
-        });
-
         id++;
       }
     }
@@ -347,24 +342,38 @@ export class VoxelWorld {
   }
 
   /**
-   * 해당 좌표가 자원 구역 이동 포탈 문 프레임 블록인지 확인 (파괴 방지용)
+   * 해당 좌표가 신성한 차원문 제단 또는 파괴 불가 구역인지 확인 (채굴/함정 방지)
    */
-  public isPortalBlock(x: number, y: number, z: number): boolean {
+  public isProtectedBlock(x: number, y: number, z: number): boolean {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
     const iz = Math.floor(z);
 
-    for (const plot of this.plots) {
-      const px = plot.minX + 1;
-      const pz = plot.minZ + 1;
+    // 1. 월드 최하층 바닥 기반암 (Y=0)은 어디서든 파괴 불가 (보이드 추락 원천 방지)
+    if (iy <= 0) return true;
 
-      if (iz === pz) {
-        if ((ix === px || ix === px + 2) && iy >= 5 && iy <= 7) return true;
-        if (ix === px + 1 && iy === 7) return true;
-        if (ix === px + 1 && iy === 4) return true;
+    // 2. 평지 마을 (town): 중앙 광장 신성한 제단 (x: -3~+3, z: -3~+3, y: 0~8) 파괴 불가
+    if (this.currentWorldType === 'town') {
+      if (Math.abs(ix) <= 3 && Math.abs(iz) <= 3 && iy <= 8) {
+        return true;
       }
     }
+
+    // 3. 자원 구역 (resource): 마을 복귀 신성한 제단 (x: -3~+3, z: -7~-1, y: 0~8) 파괴 불가
+    if (this.currentWorldType === 'resource') {
+      if (Math.abs(ix) <= 3 && iz >= -7 && iz <= -1 && iy <= 8) {
+        return true;
+      }
+    }
+
     return false;
+  }
+
+  /**
+   * 해당 좌표가 포탈 문/제단 블록인지 확인 (isProtectedBlock 연동)
+   */
+  public isPortalBlock(x: number, y: number, z: number): boolean {
+    return this.isProtectedBlock(x, y, z);
   }
 
   /**
@@ -393,20 +402,6 @@ export class VoxelWorld {
         }
       }
     }
-
-    // 포탈 문(자원 구역 이동 문) 복원
-    const px = plot.minX + 1;
-    const pz = plot.minZ + 1;
-    this.townBlocks.set(this.getKey(px, 5, pz), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(px, 6, pz), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(px, 7, pz), BlockType.PLANK);
-
-    this.townBlocks.set(this.getKey(px + 2, 5, pz), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(px + 2, 6, pz), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(px + 2, 7, pz), BlockType.PLANK);
-
-    this.townBlocks.set(this.getKey(px + 1, 7, pz), BlockType.PLANK);
-    this.townBlocks.set(this.getKey(px + 1, 4, pz), BlockType.PLANK);
 
     // 해당 구역과 인접한 청크들을 리빌드
     if (this.currentWorldType === 'town') {
@@ -456,53 +451,80 @@ export class VoxelWorld {
       }
     }
 
-    // 각 10x10 대지마다 고유의 '자원 구역 이동 포탈 문' 건축
-    this.plots.forEach(plot => {
-      const px = plot.minX + 1;
-      const pz = plot.minZ + 1;
+    // 마을 중앙 광장 (x: -3~+3, z: -3~+3) 신성한 차원문 제단 건축
+    for (let x = -3; x <= 3; x++) {
+      for (let z = -3; z <= 3; z++) {
+        // 기단 하부 단단한 석재
+        for (let y = 0; y <= 4; y++) {
+          this.townBlocks.set(this.getKey(x, y, z), BlockType.STONE);
+        }
 
-      // 좌우 기둥 3칸 (가공 목재)
-      this.townBlocks.set(this.getKey(px, 5, pz), BlockType.PLANK);
-      this.townBlocks.set(this.getKey(px, 6, pz), BlockType.PLANK);
-      this.townBlocks.set(this.getKey(px, 7, pz), BlockType.PLANK);
+        const dist = Math.max(Math.abs(x), Math.abs(z));
+        if (dist === 3) {
+          this.townBlocks.set(this.getKey(x, 4, z), BlockType.PLANK);
+        } else if (dist <= 2) {
+          this.townBlocks.set(this.getKey(x, 5, z), BlockType.STONE);
+        }
+      }
+    }
 
-      this.townBlocks.set(this.getKey(px + 2, 5, pz), BlockType.PLANK);
-      this.townBlocks.set(this.getKey(px + 2, 6, pz), BlockType.PLANK);
-      this.townBlocks.set(this.getKey(px + 2, 7, pz), BlockType.PLANK);
+    // 신성한 차원문 아치 기둥 (돌 & 마그마 룬)
+    const pillarPositions = [
+      { x: -1, z: 0 },
+      { x: 1, z: 0 },
+    ];
+    for (const p of pillarPositions) {
+      this.townBlocks.set(this.getKey(p.x, 5, p.z), BlockType.STONE);
+      this.townBlocks.set(this.getKey(p.x, 6, p.z), BlockType.MAGMA); // 빛나는 차원 룬
+      this.townBlocks.set(this.getKey(p.x, 7, p.z), BlockType.STONE);
+    }
+    // 상단 아치 & 발판
+    this.townBlocks.set(this.getKey(0, 7, 0), BlockType.PLANK);
+    this.townBlocks.set(this.getKey(0, 5, 0), BlockType.PLANK);
+    this.townBlocks.set(this.getKey(0, 6, 0), BlockType.AIR);
 
-      // 상단 아치 연결
-      this.townBlocks.set(this.getKey(px + 1, 7, pz), BlockType.PLANK);
+    // 모서리 장식 기둥 (x: +-2, z: +-2)
+    const corners = [
+      { x: -2, z: -2 }, { x: 2, z: -2 },
+      { x: -2, z: 2 }, { x: 2, z: 2 }
+    ];
+    for (const c of corners) {
+      this.townBlocks.set(this.getKey(c.x, 5, c.z), BlockType.STONE);
+      this.townBlocks.set(this.getKey(c.x, 6, c.z), BlockType.PLANK);
+    }
 
-      // 문 바닥 발판
-      this.townBlocks.set(this.getKey(px + 1, 4, pz), BlockType.PLANK);
-    });
+    this.townPortals = [
+      { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0.5 }
+    ];
   }
 
   /**
-   * 2. 자원 채취 전용 월드 (개발도상국): 숲, 바위산 + 마을 복귀 포탈 문
+   * 2. 자원 채취 전용 월드 (개발도상국): 숲, 바위산 + 신성한 마을 복귀 제단
+   * (기존 대비 1/8 크기인 56x56 면적 규격 적용)
    */
   public generateResourceTerrain(): void {
     this.resourceBlocks.clear();
-    const half = Math.floor(WORLD_SIZE / 2);
+    const half = Math.floor(RESOURCE_WORLD_SIZE / 2); // 56 / 2 = 28
 
     for (let x = -half; x < half; x++) {
       for (let z = -half; z < half; z++) {
         this.resourceBlocks.set(this.getKey(x, 0, z), BlockType.STONE);
 
-        const hill = Math.sin(x * 0.08) * Math.cos(z * 0.08) * 4.5 +
-                     Math.sin(x * 0.18 + z * 0.12) * 2.0;
+        // 아담한 56x56 크기에 맞게 지형 주파수 조정
+        const hill = Math.sin(x * 0.16) * Math.cos(z * 0.16) * 4.0 +
+                     Math.sin(x * 0.32 + z * 0.24) * 1.8;
         const groundY = Math.max(2, Math.min(WORLD_HEIGHT - 6, Math.round(5 + hill)));
 
         for (let y = 1; y <= groundY; y++) {
           if (y < groundY - 2) {
             this.resourceBlocks.set(this.getKey(x, y, z), BlockType.STONE);
           } else if (y < groundY) {
-            const isRocky = hill > 3.0;
+            const isRocky = hill > 2.8;
             this.resourceBlocks.set(this.getKey(x, y, z), isRocky ? BlockType.STONE : BlockType.DIRT);
           } else {
-            if (hill > 3.5) {
+            if (hill > 3.2) {
               this.resourceBlocks.set(this.getKey(x, y, z), BlockType.STONE);
-            } else if (hill < -3.0) {
+            } else if (hill < -2.6) {
               this.resourceBlocks.set(this.getKey(x, y, z), BlockType.DIRT);
             } else {
               this.resourceBlocks.set(this.getKey(x, y, z), BlockType.GRASS);
@@ -517,24 +539,24 @@ export class VoxelWorld {
           }
         }
 
-        // 광맥
+        // 광맥 (아담한 맵에 맞게 풍성하게 분포)
         const oreSeed = Math.sin(x * 45.123 + z * 89.456);
-        if (oreSeed > 0.95 && groundY >= 3) {
+        if (oreSeed > 0.91 && groundY >= 3) {
           this.resourceBlocks.set(this.getKey(x, groundY, z), BlockType.MAGMA);
         }
 
         // 참나무 숲
-        if (groundY >= 3 && hill <= 3.2) {
+        if (groundY >= 3 && hill <= 3.0) {
           const treeSeed = Math.sin(x * 17.654 + z * 93.21) * 43758.5453;
           const rand = treeSeed - Math.floor(treeSeed);
-          if (rand > 0.91) {
+          if (rand > 0.85) {
             this.spawnTreeInResource(x, groundY + 1, z);
           }
         }
       }
     }
 
-    // 자원 월드 스폰 위치 앞 "마을 귀환 포탈 문" 설치 (실제 지형 고도에 완벽 일치)
+    // 자원 월드 스폰 위치 앞 "신성한 마을 복귀 제단" 설치
     const rx = 0;
     const rz = -4;
 
@@ -546,25 +568,35 @@ export class VoxelWorld {
       }
     }
 
+    // 제단 주변 (rx: -3~+3, rz: -7~-1) 바닥을 단단한 석재로 채워 보이드 추락/함정 완벽 방지
+    for (let x = rx - 3; x <= rx + 3; x++) {
+      for (let z = rz - 3; z <= rz + 3; z++) {
+        for (let y = 0; y <= returnGroundY; y++) {
+          this.resourceBlocks.set(this.getKey(x, y, z), BlockType.STONE);
+        }
+        this.resourceBlocks.set(this.getKey(x, returnGroundY, z), BlockType.PLANK);
+      }
+    }
+
     // 포탈 게이트 입구 공간 정리 (내부 2칸 비우기)
     this.resourceBlocks.set(this.getKey(rx, returnGroundY + 1, rz), BlockType.AIR);
     this.resourceBlocks.set(this.getKey(rx, returnGroundY + 2, rz), BlockType.AIR);
 
-    // 좌우 기둥 3칸 (가공 목재)
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 1, rz), BlockType.PLANK);
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 2, rz), BlockType.PLANK);
-    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 3, rz), BlockType.PLANK);
+    // 좌우 기둥 3칸 (단단한 석재 및 마그마 룬)
+    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 1, rz), BlockType.STONE);
+    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 2, rz), BlockType.MAGMA);
+    this.resourceBlocks.set(this.getKey(rx - 1, returnGroundY + 3, rz), BlockType.STONE);
 
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 1, rz), BlockType.PLANK);
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 2, rz), BlockType.PLANK);
-    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 3, rz), BlockType.PLANK);
+    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 1, rz), BlockType.STONE);
+    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 2, rz), BlockType.MAGMA);
+    this.resourceBlocks.set(this.getKey(rx + 1, returnGroundY + 3, rz), BlockType.STONE);
 
     // 상단 아치 & 발판
     this.resourceBlocks.set(this.getKey(rx, returnGroundY + 3, rz), BlockType.PLANK);
     this.resourceBlocks.set(this.getKey(rx, returnGroundY, rz), BlockType.PLANK);
 
     this.resourceReturnPortal = {
-      name: '마을 복귀 문',
+      name: '신성한 마을 복귀 문',
       x: rx + 0.5,
       y: returnGroundY,
       z: rz + 0.5,
@@ -788,7 +820,8 @@ export class VoxelWorld {
     }
     chunkMeshes.clear();
 
-    const half = Math.floor(WORLD_SIZE / 2);
+    const size = worldType === 'town' ? WORLD_SIZE : RESOURCE_WORLD_SIZE;
+    const half = Math.floor(size / 2);
     const minChunk = Math.floor(-half / CHUNK_SIZE);
     const maxChunk = Math.ceil(half / CHUNK_SIZE);
 

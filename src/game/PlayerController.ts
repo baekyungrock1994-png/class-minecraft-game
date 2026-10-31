@@ -345,6 +345,17 @@ export class PlayerController {
       this.velocity.y = 8.0;
       this.damageCooldown = 0.8;
     }
+
+    // 3. 보이드(허공) 추락 방지: Y좌표가 -4 이하로 떨어지면 안전한 지상 스폰 지점으로 즉시 텔레포트
+    if (this.position.y < -4) {
+      this.velocity.set(0, 0, 0);
+      if (this.world.currentWorldType === 'town') {
+        this.teleport(0.5, 6.0, 3.5);
+      } else {
+        this.teleport(0.5, 7.0, -1.0);
+      }
+      this.takeDamage(10, '허공으로 추락하여 신성한 제단으로 긴급 복귀했습니다! ⚡');
+    }
   }
 
   public takeDamage(amount: number, reason: string, isFromPlayer: boolean = false): void {

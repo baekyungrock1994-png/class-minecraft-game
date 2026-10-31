@@ -232,7 +232,8 @@ export const BLOCK_BREAK_TIMES: Record<BlockType, number> = {
 };
 
 // 월드 기본 규격
-export const WORLD_SIZE = 160; // 기존 64 대비 대폭 확장 (160x160)
+export const WORLD_SIZE = 160; // 마을 주거 월드 규격 (160x160)
+export const RESOURCE_WORLD_SIZE = 56; // 자원을 얻을 수 있는 개발도상국 월드 규격 (기존 대비 1/8 크기, 56x56)
 export const CHUNK_SIZE = 16; // 16x16 청크 단위 최적화 (채굴 렉 제거)
 export const WORLD_HEIGHT = 32;
 export const SEA_LEVEL = 4; // 기본 해수면 Y좌표

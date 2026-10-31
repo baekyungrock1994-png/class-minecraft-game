@@ -288,6 +288,12 @@ class GameApp {
 
     // 1. 채굴 / 파괴 동작 (break)
     if (event.action === 'break') {
+      // 0) 신성한 차원문 제단 및 바닥 기반암 파괴 원천 차단 (마을 & 자원구역 모두 절대 보호)
+      if (this.world.isProtectedBlock(event.x, event.y, event.z)) {
+        this.showNotification('✨ 신성한 차원문 제단과 바닥 기반암은 절대 파괴할 수 없습니다!', '🔒');
+        return false;
+      }
+
       if (isResourceWorld) {
         // 자원 구역(개발도상국): 학생, 교사 모두 자유롭게 채굴 가능
         this.hotbar.addResource(event.type, 1);
@@ -320,12 +326,6 @@ class GameApp {
         // 2) 다른 학생의 대지 파괴 시도 차단 (다른 사람 구역 및 건축물 절대 수정 불가!)
         if (plot.id !== this.player.assignedPlotIndex) {
           this.showNotification(`🚫 [대지 #${plot.id}]은 다른 친구의 구역입니다! 다른 학생의 건축물은 수정할 수 없습니다.`, '🛡️');
-          return false;
-        }
-
-        // 3) 본인 대지 내 포탈 문 파괴 방지
-        if (this.world.isPortalBlock(event.x, event.y, event.z)) {
-          this.showNotification('🌀 자원 구역 이동 문은 파괴할 수 없습니다!', '🔒');
           return false;
         }
 
@@ -449,8 +449,9 @@ class GameApp {
 
   private teleportToMyPlot(): void {
     const plot = this.world.plots.find(p => p.id === this.player.assignedPlotIndex);
+    // plot이 없거나 교사인 경우 중앙 신성한 제단 앞 안전 지대 (x: 0.5, z: 3.5)로 스폰
     const tx = plot ? plot.centerX : 0;
-    const tz = plot ? plot.centerZ : 0;
+    const tz = plot ? plot.centerZ : 3.0;
     const ix = Math.floor(tx);
     const iz = Math.floor(tz);
     let highestY = 4;
@@ -676,6 +677,14 @@ class GameApp {
    * [Phase 3] 환경 대재앙 발동: 해수면 급상승(홍수) 및 마그마 분출
    */
   public triggerDisaster(): void {
+    this.applyDisasterLocally();
+    // 교사가 발동한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
+    if (this.networkManager && this.networkManager.role === 'teacher') {
+      this.networkManager.sendDisasterState(true);
+    }
+  }
+
+  public applyDisasterLocally(): void {
     this.isDisasterActive = true;
     this.world.isDisasterActive = true;
     this.targetWaterY = 6.8; // 평지 Y=4 위로 2.8블록 차오름 (집 1층 수몰)
@@ -683,9 +692,11 @@ class GameApp {
     this.world.disasterWaterMesh.visible = true;
     this.world.triggerMagmaEruption();
 
-    this.disasterStatusBadge.textContent = '🔥 대재앙 발생 중!';
-    this.disasterStatusBadge.style.color = '#ef4444';
-    this.disasterStatusBadge.style.borderColor = '#ef4444';
+    if (this.disasterStatusBadge) {
+      this.disasterStatusBadge.textContent = '🔥 대재앙 발생 중!';
+      this.disasterStatusBadge.style.color = '#ef4444';
+      this.disasterStatusBadge.style.borderColor = '#ef4444';
+    }
 
     this.showNotification('🚨 [환경 대재앙 발동] 해수면이 폭주하고 지열 마그마가 솟구칩니다! 높은 곳으로 대피하세요!', '🌋');
   }
@@ -694,6 +705,14 @@ class GameApp {
    * 평화 상태 복구 / 리셋
    */
   public resetDisaster(): void {
+    this.applyPeaceLocally();
+    // 교사가 리셋한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
+    if (this.networkManager && this.networkManager.role === 'teacher') {
+      this.networkManager.sendDisasterState(false);
+    }
+  }
+
+  public applyPeaceLocally(): void {
     this.isDisasterActive = false;
     this.world.isDisasterActive = false;
     this.targetWaterY = 1.0;
@@ -701,9 +720,11 @@ class GameApp {
     this.world.disasterWaterMesh.visible = false;
     this.world.clearMagmaEruption();
 
-    this.disasterStatusBadge.textContent = '평화 상태';
-    this.disasterStatusBadge.style.color = '';
-    this.disasterStatusBadge.style.borderColor = '';
+    if (this.disasterStatusBadge) {
+      this.disasterStatusBadge.textContent = '평화 상태';
+      this.disasterStatusBadge.style.color = '';
+      this.disasterStatusBadge.style.borderColor = '';
+    }
 
     this.setTime(this.timeOfDay); // 원래 시간 조명 복귀
     this.showNotification('🕊️ 환경이 정화되어 수위가 내려가고 마그마가 굳어 평화가 찾아왔습니다.', '✨');
@@ -1018,21 +1039,22 @@ class GameApp {
   private setupNetworkCallbacks(): void {
     // 1. 다른 플레이어가 설치/파괴한 블록 실시간 수신
     this.networkManager.onBlockUpdate = (delta: BlockDeltaData) => {
+      const bType = Number(delta.blockType);
       if (delta.worldType === this.world.currentWorldType) {
-        this.world.setBlock(delta.x, delta.y, delta.z, delta.blockType);
+        this.world.setBlock(delta.x, delta.y, delta.z, bType);
       } else {
         const key = `${delta.x},${delta.y},${delta.z}`;
         if (delta.worldType === 'town') {
-          if (delta.blockType === BlockType.AIR) {
+          if (bType === BlockType.AIR) {
             this.world.townBlocks.delete(key);
           } else {
-            this.world.townBlocks.set(key, delta.blockType);
+            this.world.townBlocks.set(key, bType);
           }
         } else {
-          if (delta.blockType === BlockType.AIR) {
+          if (bType === BlockType.AIR) {
             this.world.resourceBlocks.delete(key);
           } else {
-            this.world.resourceBlocks.set(key, delta.blockType);
+            this.world.resourceBlocks.set(key, bType);
           }
         }
       }
@@ -1074,6 +1096,23 @@ class GameApp {
       this.showNotification(`📢 선생님이 내 닉네임을 [${newName}](으)로 변경했습니다!`, '✏️');
       if (this.networkManager.role === 'student') {
         this.playerDisplayEl.textContent = `${newName} (#${this.player.assignedPlotIndex})`;
+      }
+    };
+
+    // 5-1. 관리자에 의해 내 대지 번호가 재할당된 경우 실시간 알림 및 UI 반영
+    this.networkManager.onMyPlotChanged = (newPlotId: number) => {
+      this.player.assignedPlotIndex = newPlotId;
+      this.plotSelector.value = newPlotId.toString();
+      this.playerDisplayEl.textContent = `${this.networkManager.playerName} (#${newPlotId})`;
+      this.showNotification(`👑 선생님이 내 건축 구역을 [대지 #${newPlotId}]로 변경했습니다!`, '🏡');
+    };
+
+    // 5-2. 환경 대재앙 상태 실시간 수신 (학생 화면에도 즉시 동기화)
+    this.networkManager.onDisasterChange = (isActive: boolean) => {
+      if (isActive) {
+        this.applyDisasterLocally();
+      } else {
+        this.applyPeaceLocally();
       }
     };
 
@@ -1210,18 +1249,162 @@ class GameApp {
       authStepSelect.classList.remove('hidden');
     });
 
+    const tabTeacherCreate = document.getElementById('tab-teacher-create');
+    const tabTeacherList = document.getElementById('tab-teacher-list');
+    const teacherSavedRoomsSection = document.getElementById('teacher-saved-rooms-section');
+    const teacherPinInput = document.getElementById('teacher-pin-input') as HTMLInputElement;
+    const teacherSavedNameInput = document.getElementById('teacher-saved-name-input') as HTMLInputElement;
+    const teacherSavedPinInput = document.getElementById('teacher-saved-pin-input') as HTMLInputElement;
+    const btnFetchSavedRooms = document.getElementById('btn-fetch-saved-rooms');
+    const savedRoomsList = document.getElementById('saved-rooms-list');
+    const btnToggleHint = document.getElementById('btn-toggle-hint');
+    const controlsHintBody = document.getElementById('controls-hint-body');
+
+    // 조작 안내 힌트 접기/펼치기 토글
+    if (btnToggleHint && controlsHintBody) {
+      btnToggleHint.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isCollapsed = controlsHintBody.classList.toggle('collapsed');
+        btnToggleHint.textContent = isCollapsed ? '조작법 펴기 📖' : '접기 ✕';
+      });
+    }
+
+    // 1. 교사용 서브 탭 전환 (새 마을 만들기 vs 내 마을 목록 이어하기)
+    if (tabTeacherCreate && tabTeacherList && teacherSavedRoomsSection) {
+      tabTeacherCreate.addEventListener('click', () => {
+        clearError();
+        tabTeacherCreate.classList.add('active');
+        tabTeacherList.classList.remove('active');
+        teacherFormSection.classList.remove('hidden');
+        teacherSavedRoomsSection.classList.add('hidden');
+      });
+
+      tabTeacherList.addEventListener('click', () => {
+        clearError();
+        tabTeacherList.classList.add('active');
+        tabTeacherCreate.classList.remove('active');
+        teacherSavedRoomsSection.classList.remove('hidden');
+        teacherFormSection.classList.add('hidden');
+        if (teacherNameInput && teacherSavedNameInput) {
+          teacherSavedNameInput.value = teacherNameInput.value;
+        }
+        if (teacherPinInput && teacherSavedPinInput) {
+          teacherSavedPinInput.value = teacherPinInput.value;
+        }
+        fetchTeacherRoomsList();
+      });
+    }
+
+    // 교사 이전 마을 목록 불러오기 및 이어하기/삭제 함수
+    const fetchTeacherRoomsList = async () => {
+      if (!savedRoomsList) return;
+      const tName = (teacherSavedNameInput?.value || teacherNameInput?.value || '선생님').trim();
+      const tPin = (teacherSavedPinInput?.value || teacherPinInput?.value || '1234').trim();
+
+      savedRoomsList.innerHTML = '<div class="empty-rooms-msg">마을 목록을 불러오는 중...</div>';
+      try {
+        const rooms = await this.networkManager.getTeacherRooms(tName, tPin);
+        if (!rooms || rooms.length === 0) {
+          savedRoomsList.innerHTML = '<div class="empty-rooms-msg">이전에 생성했던 마을이 없습니다.<br>새 마을을 개설해보세요!</div>';
+          return;
+        }
+        savedRoomsList.innerHTML = '';
+        rooms.forEach((r: any) => {
+          const card = document.createElement('div');
+          card.className = 'saved-room-card';
+          const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '일자 미상';
+          card.innerHTML = `
+            <div class="saved-room-info">
+              <div class="saved-room-name">${r.roomName || '우리 반 마을'}</div>
+              <div class="saved-room-code-tag">🔑 코드: <span>#${r.roomCode}</span></div>
+              <div class="saved-room-date">📅 개설: ${dateStr}</div>
+            </div>
+            <div class="saved-room-actions">
+              <button class="btn-resume-room" data-code="${r.roomCode}">▶ 이어하기</button>
+              <button class="btn-delete-room" data-code="${r.roomCode}">🗑️ 삭제</button>
+            </div>
+          `;
+
+          const resumeBtn = card.querySelector('.btn-resume-room') as HTMLButtonElement;
+          resumeBtn?.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            clearError();
+            resumeBtn.setAttribute('disabled', 'true');
+            resumeBtn.textContent = '불러오는 중...';
+            try {
+              const res = await this.networkManager.resumeRoom(r.roomCode, tName, tPin);
+              if (res.success) {
+                this.hasGameStarted = true;
+                this.startModal.classList.add('hidden');
+                this.player.bypassPlotRestriction = true;
+                this.playerDisplayEl.textContent = '👑 교사 (관리자)';
+                this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
+                this.showNotification(`마을 #${r.roomCode} [${r.roomName}] 이어하기 성공!`, '👑');
+                this.requestPointerLockSafely();
+              } else {
+                showError(res.message || '마을 이어하기 실패');
+                resumeBtn.removeAttribute('disabled');
+                resumeBtn.textContent = '▶ 이어하기';
+              }
+            } catch (err: any) {
+              showError('마을 이어하기 오류: ' + (err.message || err));
+              resumeBtn.removeAttribute('disabled');
+              resumeBtn.textContent = '▶ 이어하기';
+            }
+          });
+
+          const deleteBtn = card.querySelector('.btn-delete-room') as HTMLButtonElement;
+          deleteBtn?.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm(`정말 #${r.roomCode} (${r.roomName || '마을'})을 영구 삭제하시겠습니까?\n모든 건축 데이터가 삭제됩니다.`)) {
+              return;
+            }
+            deleteBtn.setAttribute('disabled', 'true');
+            deleteBtn.textContent = '삭제 중...';
+            try {
+              const ok = await this.networkManager.deleteTeacherRoom(r.roomCode, tName, tPin);
+              if (ok) {
+                this.showNotification(`마을 #${r.roomCode}가 삭제되었습니다.`, '🗑️');
+                fetchTeacherRoomsList();
+              } else {
+                showError('마을 삭제 실패');
+                deleteBtn.removeAttribute('disabled');
+                deleteBtn.textContent = '🗑️ 삭제';
+              }
+            } catch (err: any) {
+              showError('마을 삭제 오류: ' + (err.message || err));
+              deleteBtn.removeAttribute('disabled');
+              deleteBtn.textContent = '🗑️ 삭제';
+            }
+          });
+
+          savedRoomsList.appendChild(card);
+        });
+      } catch (err: any) {
+        savedRoomsList.innerHTML = `<div class="empty-rooms-msg">목록 조회 중 오류: ${err.message || err}</div>`;
+      }
+    };
+
+    if (btnFetchSavedRooms) {
+      btnFetchSavedRooms.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fetchTeacherRoomsList();
+      });
+    }
+
     // 1. 선생님 방 생성
     btnCreateRoom.addEventListener('click', async (e) => {
       e.stopPropagation();
       clearError();
       const teacherName = teacherNameInput.value.trim() || '선생님';
+      const teacherPin = teacherPinInput ? teacherPinInput.value.trim() : '1234';
       const roomTitle = roomTitleInput.value.trim() || '우리 반 마을';
 
       btnCreateRoom.setAttribute('disabled', 'true');
       btnCreateRoom.textContent = '방 생성 중...';
 
       try {
-        const code = await this.networkManager.createRoom(roomTitle, teacherName);
+        const code = await this.networkManager.createRoom(roomTitle, teacherName, teacherPin);
         displayCreatedCode.textContent = code;
         teacherFormSection.classList.add('hidden');
         teacherCodeSection.classList.remove('hidden');
@@ -1394,9 +1577,9 @@ class GameApp {
         const dz = pz - portal.z;
         const distSq = dx * dx + dz * dz;
 
-        // 문 프레임 안(반경 1.25블록)으로 걸어 들어오면 이동!
-        if (distSq < 1.4 && Math.abs(py - (portal.y + 1)) < 2.2) {
-          this.portalCooldown = 3.5;
+        // 문 프레임 안(반경 1.3블록)으로 걸어 들어오면 이동!
+        if (distSq < 1.5 && Math.abs(py - (portal.y + 1)) < 2.4) {
+          this.portalCooldown = 4.0;
           this.switchWorld('resource');
           this.showNotification(`🚪 [${portal.name}]을 통과하여 자원 구역(개발도상국)에 도착했습니다!`, '🌀');
           break;
@@ -1410,10 +1593,10 @@ class GameApp {
       const distSq = dx * dx + dz * dz;
 
       // 귀환 문 통과 시 (반경 1.8블록, 높이 2.8블록 이내)
-      if (distSq < 2.2 && Math.abs(py - (rp.y + 1.2)) < 2.8) {
-        this.portalCooldown = 3.5;
+      if (distSq < 2.0 && Math.abs(py - (rp.y + 1.2)) < 2.6) {
+        this.portalCooldown = 4.0;
         this.switchWorld('town');
-        this.showNotification(`🚪 마을 귀환 문을 통과하여 나의 대지(#${this.player.assignedPlotIndex})로 복귀했습니다!`, '🏡');
+        this.showNotification(`🚪 신성한 마을 귀환 문을 통과하여 마을로 복귀했습니다!`, '🏡');
         this.requestPointerLockSafely();
       }
     }
@@ -1677,7 +1860,26 @@ class GameApp {
         const right = document.createElement('div');
         right.className = 'player-roster-right';
 
-        // 1. 닉네임 변경 버튼
+        // 1. 대지(구역) 변경 버튼 (선생님 권한)
+        const reassignBtn = document.createElement('button');
+        reassignBtn.className = 'roster-plot-btn';
+        reassignBtn.innerHTML = `🏠 대지(#${p.plotId}) 변경`;
+        reassignBtn.title = '이 학생의 할당 구역(대지 번호 1~16)을 즉시 변경합니다';
+        reassignBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const input = prompt(`[${p.name}] 학생에게 새로 배정할 대지 번호(1~16)를 입력하세요:`, p.plotId?.toString() || '1');
+          if (input !== null) {
+            const plotNum = parseInt(input.trim(), 10);
+            if (!isNaN(plotNum) && plotNum >= 1 && plotNum <= 16) {
+              await this.networkManager.reassignStudentPlot(p.uid, p.name, plotNum);
+              this.showNotification(`[${p.name}] 학생의 대지를 [#${plotNum}번]으로 재배치했습니다.`, '🏠');
+            } else {
+              alert('대지 번호는 1부터 16 사이의 숫자여야 합니다.');
+            }
+          }
+        });
+
+        // 2. 닉네임 변경 버튼
         const renameBtn = document.createElement('button');
         renameBtn.className = 'roster-rename-btn';
         renameBtn.innerHTML = '✏️ 닉네임 변경';
@@ -1692,7 +1894,7 @@ class GameApp {
           }
         });
 
-        // 2. 강제 추방(Kick) 버튼
+        // 3. 강제 추방(Kick) 버튼
         const kickBtn = document.createElement('button');
         kickBtn.className = 'roster-kick-btn';
         kickBtn.innerHTML = '🚫 추방';

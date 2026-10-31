@@ -97,6 +97,8 @@ export class NetworkManager {
   public onPlayerListUpdate?: (players: PlayerNetworkData[]) => void;
   public onChatMessage?: (chat: ChatMessage) => void;
   public onMyNameChanged?: (newName: string) => void;
+  public onMyPlotChanged?: (newPlotId: number) => void;
+  public onDisasterChange?: (isActive: boolean) => void;
   public onPendingRequestsUpdate?: (requests: JoinRequestData[]) => void;
   public onJoinApproved?: (plotId: number) => void;
   public onJoinRejected?: () => void;
@@ -135,7 +137,7 @@ export class NetworkManager {
   /**
    * 1. [교사용] 5자리 랜덤 코드로 새로운 방 생성
    */
-  public async createRoom(roomName: string, teacherName: string): Promise<string> {
+  public async createRoom(roomName: string, teacherName: string, teacherPin: string = ''): Promise<string> {
     const user = await this.loginAnonymously();
     this.role = 'teacher';
     this.playerName = teacherName.trim() || '선생님';
@@ -160,22 +162,166 @@ export class NetworkManager {
     }
 
     this.roomCode = generatedCode;
+    const finalRoomTitle = roomName.trim() || `${this.playerName}의 교실 마을`;
 
     // 방 메타데이터 생성
     await set(ref(this.db, `rooms/${this.roomCode}/meta`), {
       roomCode: this.roomCode,
-      roomName: roomName.trim() || `${teacherName} 선생님의 교실 마을`,
+      roomName: finalRoomTitle,
       hostUid: user.uid,
       teacherName: this.playerName,
+      teacherPin: teacherPin.trim(),
       maxPlayers: 16,
       createdAt: Date.now()
     });
+
+    // 교사 보관함에 방 기록 저장
+    await this.saveTeacherRoomRecord(this.roomCode, finalRoomTitle, this.playerName, teacherPin.trim());
 
     // 교사 플레이어 등록
     await this.registerPlayerInDb(0);
     this.setupListeners();
 
     return this.roomCode;
+  }
+
+  /**
+   * [교사용] 이전에 생성했던 마을 이어하기 (방 재개)
+   */
+  public async resumeRoom(roomCode: string, teacherName: string, teacherPin: string = ''): Promise<{ success: boolean; message?: string }> {
+    const code = roomCode.trim();
+    if (!code) return { success: false, message: '방 코드를 입력해주세요.' };
+
+    const user = await this.loginAnonymously();
+    const metaSnap = await get(ref(this.db, `rooms/${code}/meta`));
+
+    if (!metaSnap.exists()) {
+      return { success: false, message: `코드 [${code}]에 해당하는 마을을 찾을 수 없습니다.` };
+    }
+
+    const meta = metaSnap.val();
+    if (meta.teacherPin && teacherPin.trim() && meta.teacherPin !== teacherPin.trim()) {
+      return { success: false, message: '마을 관리 비밀번호가 일치하지 않습니다.' };
+    }
+
+    this.roomCode = code;
+    this.role = 'teacher';
+    this.playerName = teacherName.trim() || meta.teacherName || '선생님';
+    this.isHost = true;
+    this.myPlotId = 0;
+
+    // 호스트 UID 갱신
+    await update(ref(this.db, `rooms/${this.roomCode}/meta`), {
+      hostUid: user.uid,
+      teacherName: this.playerName
+    });
+
+    // 교사 플레이어 등록 및 동기화 시작
+    await this.registerPlayerInDb(0);
+    this.setupListeners();
+
+    // 보관함 갱신
+    await this.saveTeacherRoomRecord(code, meta.roomName || `${this.playerName}의 마을`, this.playerName, teacherPin.trim());
+
+    return { success: true };
+  }
+
+  /**
+   * [교사용] 교사가 생성했던 마을 목록 불러오기
+   */
+  public async getTeacherRooms(teacherName: string, teacherPin: string = ''): Promise<Array<{ roomCode: string; roomName: string; createdAt: number }>> {
+    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
+    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    const teacherKey = `${cleanTeacher}_${cleanPin}`;
+
+    const roomsMap = new Map<string, { roomCode: string; roomName: string; createdAt: number }>();
+
+    // 1. Firebase 조회
+    try {
+      const snap = await get(ref(this.db, `teachers/${teacherKey}/rooms`));
+      if (snap.exists()) {
+        const val = snap.val();
+        for (const code in val) {
+          roomsMap.set(code, val[code]);
+        }
+      }
+    } catch (e) {
+      console.warn('Firebase teacher rooms read error:', e);
+    }
+
+    // 2. 로컬스토리지 백업 데이터 조회 및 병합
+    try {
+      const localData = localStorage.getItem(`teacher_rooms_${teacherKey}`);
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        for (const item of parsed) {
+          if (!roomsMap.has(item.roomCode)) {
+            roomsMap.set(item.roomCode, item);
+          }
+        }
+      }
+    } catch (e) {}
+
+    return Array.from(roomsMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * [교사용] 마을 영구 삭제
+   */
+  public async deleteTeacherRoom(roomCode: string, teacherName: string, teacherPin: string = ''): Promise<boolean> {
+    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
+    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    const teacherKey = `${cleanTeacher}_${cleanPin}`;
+
+    try {
+      // 1. 방 전체 데이터 삭제
+      await remove(ref(this.db, `rooms/${roomCode}`));
+      // 2. 교사 목록에서 삭제
+      await remove(ref(this.db, `teachers/${teacherKey}/rooms/${roomCode}`));
+
+      // 3. 로컬스토리지에서도 삭제
+      const localKey = `teacher_rooms_${teacherKey}`;
+      const localData = localStorage.getItem(localKey);
+      if (localData) {
+        const parsed = JSON.parse(localData) as Array<any>;
+        const filtered = parsed.filter(r => r.roomCode !== roomCode);
+        localStorage.setItem(localKey, JSON.stringify(filtered));
+      }
+      return true;
+    } catch (e) {
+      console.error('Failed to delete room:', e);
+      return false;
+    }
+  }
+
+  /**
+   * 교사 보관함에 방 정보 저장 (Firebase & LocalStorage)
+   */
+  private async saveTeacherRoomRecord(roomCode: string, roomName: string, teacherName: string, teacherPin: string): Promise<void> {
+    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
+    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    const teacherKey = `${cleanTeacher}_${cleanPin}`;
+
+    const record = {
+      roomCode,
+      roomName,
+      createdAt: Date.now()
+    };
+
+    try {
+      await update(ref(this.db, `teachers/${teacherKey}/rooms/${roomCode}`), record);
+    } catch (e) {
+      console.warn('Failed to save to teachers node in Firebase:', e);
+    }
+
+    try {
+      const localKey = `teacher_rooms_${teacherKey}`;
+      const existing = localStorage.getItem(localKey);
+      let list: Array<any> = existing ? JSON.parse(existing) : [];
+      list = list.filter(r => r.roomCode !== roomCode);
+      list.unshift(record);
+      localStorage.setItem(localKey, JSON.stringify(list));
+    } catch (e) {}
   }
 
   /**
@@ -274,30 +420,67 @@ export class NetworkManager {
   }
 
   /**
-   * [교사용] 학생의 마을 입장 승인 및 대지 배정
+   * [교사용] 학생의 마을 입장 승인 및 대지 배정 (기존 대지 영구 유지 및 동시 접속 충돌 방지)
    */
   public async approveStudent(applicantUid: string): Promise<number> {
     if (!this.roomCode || this.role !== 'teacher') return 1;
 
-    // 현재 사용 중인 대지 번호 확인
-    const playersSnap = await get(ref(this.db, `rooms/${this.roomCode}/players`));
-    const occupiedPlots = new Set<number>();
-    if (playersSnap.exists()) {
-      const players = playersSnap.val();
-      for (const uid in players) {
-        if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
+    // 1. 기존 영구 배정 기록(assignedPlots) 확인
+    const assignedPlotsRef = ref(this.db, `rooms/${this.roomCode}/assignedPlots`);
+    const assignedPlotsSnap = await get(assignedPlotsRef);
+    const assignedPlotsMap: Record<string, number> = assignedPlotsSnap.exists() ? assignedPlotsSnap.val() : {};
+
+    // 신청자의 이름 확인
+    const reqSnap = await get(ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`));
+    const applicantName = reqSnap.exists() ? (reqSnap.val().name || '') : '';
+
+    // 기존에 배정받은 적이 있는 학생(이름 또는 UID 기준)이면 기존 대지 복원
+    let assignedPlot: number | null = null;
+    if (assignedPlotsMap[applicantUid]) {
+      assignedPlot = assignedPlotsMap[applicantUid];
+    } else if (applicantName && assignedPlotsMap[applicantName]) {
+      assignedPlot = assignedPlotsMap[applicantName];
+    }
+
+    // 2. 신규 배정 필요한 경우 (사용 중인 대지 종합 수집)
+    if (!assignedPlot || assignedPlot < 1 || assignedPlot > 16) {
+      const playersSnap = await get(ref(this.db, `rooms/${this.roomCode}/players`));
+      const occupiedPlots = new Set<number>();
+
+      // 1) 현재 접속 중인 플레이어들
+      if (playersSnap.exists()) {
+        const players = playersSnap.val();
+        for (const uid in players) {
+          if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
+        }
+      }
+      // 2) 이전에 배정된 기록들
+      for (const key in assignedPlotsMap) {
+        if (typeof assignedPlotsMap[key] === 'number') {
+          occupiedPlots.add(assignedPlotsMap[key]);
+        }
+      }
+
+      // 1~16번 중 가장 빠른 빈 대지 배정
+      assignedPlot = 1;
+      for (let i = 1; i <= 16; i++) {
+        if (!occupiedPlots.has(i)) {
+          assignedPlot = i;
+          break;
+        }
       }
     }
 
-    // 1~16번 중 가장 빠른 빈 대지 배정
-    let assignedPlot = 1;
-    for (let i = 1; i <= 16; i++) {
-      if (!occupiedPlots.has(i)) {
-        assignedPlot = i;
-        break;
-      }
+    // 영구 배정 기록 저장
+    const updates: Record<string, any> = {
+      [applicantUid]: assignedPlot
+    };
+    if (applicantName) {
+      updates[applicantName] = assignedPlot;
     }
+    await update(assignedPlotsRef, updates);
 
+    // 승인 상태 전송
     const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${applicantUid}`);
     await update(reqRef, {
       status: 'approved',
@@ -305,6 +488,30 @@ export class NetworkManager {
     });
 
     return assignedPlot;
+  }
+
+  /**
+   * [교사용] 특정 학생의 할당 구역(대지 번호)을 일방적으로 즉시 변경/재배치
+   */
+  public async reassignStudentPlot(targetUid: string, targetName: string, newPlotId: number): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+    const clampedPlot = Math.max(1, Math.min(16, Math.floor(newPlotId)));
+
+    // 1. 플레이어 노드 갱신
+    const playerRef = ref(this.db, `rooms/${this.roomCode}/players/${targetUid}`);
+    await update(playerRef, {
+      plotId: clampedPlot
+    });
+
+    // 2. 영구 대지 매핑 갱신
+    const assignedPlotsRef = ref(this.db, `rooms/${this.roomCode}/assignedPlots`);
+    const updates: Record<string, any> = {
+      [targetUid]: clampedPlot
+    };
+    if (targetName) {
+      updates[targetName] = clampedPlot;
+    }
+    await update(assignedPlotsRef, updates);
   }
 
   /**
@@ -396,6 +603,13 @@ export class NetworkManager {
               this.playerName = p.name;
               if (this.onMyNameChanged) {
                 this.onMyNameChanged(p.name);
+              }
+            }
+            // 관리자(교사)에 의해 본인 대지가 재할당된 경우 감지
+            if (p.plotId && p.plotId !== this.myPlotId && this.role === 'student') {
+              this.myPlotId = p.plotId;
+              if (this.onMyPlotChanged) {
+                this.onMyPlotChanged(p.plotId);
               }
             }
           } else {
@@ -490,6 +704,18 @@ export class NetworkManager {
         }
       });
     }
+
+    // 8. [모든 플레이어] 환경 대재앙 상태 실시간 동기화 (홍수 & 마그마 분출)
+    const disasterRef = ref(this.db, `rooms/${this.roomCode}/gameState/disaster`);
+    onValue(disasterRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.val();
+      if (data && typeof data.isActive === 'boolean') {
+        if (this.onDisasterChange) {
+          this.onDisasterChange(data.isActive);
+        }
+      }
+    });
   }
 
   private handleIncomingBlockDelta(snap: DataSnapshot): void {
@@ -609,8 +835,8 @@ export class NetworkManager {
       };
       this.remotePlayers.set(data.uid, remote);
     } else {
-      // 닉네임이 관리자에 의해 변경되었으면 3D 명찰 즉시 교체
-      if (remote.data.name !== data.name) {
+      // 닉네임 또는 대지 번호가 관리자에 의해 변경되었으면 3D 명찰 즉시 교체
+      if (remote.data.name !== data.name || remote.data.plotId !== data.plotId) {
         const oldSprite = remote.mesh.getObjectByName('nameSprite');
         if (oldSprite) remote.mesh.remove(oldSprite);
         const labelText = data.role === 'teacher' ? `👑 ${data.name} (선생님)` : `🧑‍🎓 ${data.name} (#${data.plotId} 대지)`;
@@ -760,16 +986,35 @@ export class NetworkManager {
    * 관리자(교사) 전용: 학생 닉네임 강제 변경
    */
   public async changePlayerName(targetUid: string, newName: string): Promise<void> {
-    if (!this.roomCode) return;
+    if (!this.roomCode || this.role !== 'teacher') return;
     const cleanName = newName.trim();
     if (!cleanName) return;
 
-    const playerRef = ref(this.db, `rooms/${this.roomCode}/players/${targetUid}/name`);
-    await set(playerRef, cleanName);
+    // 1. players 노드 업데이트
+    const playerRef = ref(this.db, `rooms/${this.roomCode}/players/${targetUid}`);
+    await update(playerRef, { name: cleanName });
+
+    // 2. joinRequests 노드 갱신
+    try {
+      const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${targetUid}`);
+      await update(reqRef, { name: cleanName });
+    } catch (e) {}
 
     if (this.currentUser?.uid === targetUid) {
       this.playerName = cleanName;
     }
+  }
+
+  /**
+   * [교사용] 환경 대재앙 상태 실시간 전송 (학생 화면에도 즉시 동기화)
+   */
+  public async sendDisasterState(isActive: boolean): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+    const disasterRef = ref(this.db, `rooms/${this.roomCode}/gameState/disaster`);
+    await set(disasterRef, {
+      isActive,
+      timestamp: Date.now()
+    });
   }
 
   /**

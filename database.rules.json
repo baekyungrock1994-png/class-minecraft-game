@@ -1,0 +1,73 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomCode": {
+        // 로그인한 사용자(익명 로그인 포함)만 해당 방에 접근 가능
+        ".read": "auth != null",
+
+        // 1. 방 메타데이터 (방 생성, 교사 관리)
+        "meta": {
+          ".write": "auth != null"
+        },
+
+        // 2. 학생 입장 승인 대기열 (학생이 참가 신청/취소, 교사가 승인/거절)
+        "joinRequests": {
+          ".write": "auth != null"
+        },
+
+        // 3. 플레이어 접속 상태 및 위치 (학생 위치 전송, 교사의 닉네임 수정 및 강퇴)
+        "players": {
+          ".write": "auth != null"
+        },
+
+        // 4. 강제 추방 목록 (교사가 등록, 학생이 확인)
+        "kicked": {
+          ".write": "auth != null"
+        },
+
+        // 5. 블록 설치/파괴 델타 및 교사의 마을 리셋
+        "worldDeltas": {
+          ".write": "auth != null"
+        },
+
+        // 6. 특정 대지(구역) 초기화 이벤트
+        "plotResetEvent": {
+          ".write": "auth != null"
+        },
+
+        // 7. 실시간 긍정 채팅 메시지
+        "chats": {
+          ".write": "auth != null"
+        },
+
+        // 8. 전역 게임 상태 (환경 대재앙, 게임 일시정지 등)
+        "gameState": {
+          ".write": "auth != null"
+        },
+
+        // 9. 구역(Plot) 배정 정보 & 영구 보존 대지 매핑 (재접속 시 유지용)
+        "plots": {
+          ".write": "auth != null"
+        },
+        "assignedPlots": {
+          ".write": "auth != null"
+        },
+
+        // 10. 이모지(Emote) 이벤트
+        "emotes": {
+          ".write": "auth != null"
+        },
+
+        // 11. 청크 스냅샷
+        "chunks": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    // 교사용 생성 마을 목록 보관함 (이름/PIN 기반 조회 및 복구)
+    "teachers": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
