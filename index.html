@@ -75,6 +75,9 @@
           <span class="pill-icon">✈️</span>
           <span>비행 중 (F)</span>
         </div>
+        <button id="btn-open-shop" class="shop-toggle-btn" tabindex="-1" title="마을 종묘 상점 열기 (단축키: B)">
+          🏪 상점 (B)
+        </button>
         <button id="btn-open-crafting" class="craft-toggle-btn" tabindex="-1" title="조합대 열기 (단축키: C 또는 E)">
           🪑 조합/제작 (C)
         </button>
@@ -448,6 +451,102 @@
       
       <div class="crafting-footer">
         <span class="crafting-tip">💡 <kbd>E</kbd> 또는 <kbd>C</kbd> 키로 언제든 조합창을 열고 닫을 수 있습니다. 완성품을 클릭하면 제작됩니다!</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 마을 종묘 상점 모달 (나무 씨앗 교환) -->
+  <div id="shop-modal" class="modal-backdrop hidden">
+    <div class="shop-card">
+      <div class="shop-header">
+        <div class="shop-title">
+          <span class="shop-icon">🏪</span>
+          <div>
+            <h3>마을 종묘 상점 (Nursery Shop)</h3>
+            <p class="shop-subtitle">흙이나 돌 블럭을 모아 참나무 씨앗으로 교환하세요!</p>
+          </div>
+        </div>
+        <button id="btn-close-shop" class="close-btn" title="닫기 (B/ESC)">✕</button>
+      </div>
+
+      <!-- 내 보유 자원 현황 -->
+      <div class="shop-resources-bar">
+        <div class="shop-resource-item">
+          <span class="res-icon">🟫</span>
+          <span class="res-name">보유 흙:</span>
+          <span id="shop-dirt-balance" class="res-val">0개</span>
+        </div>
+        <div class="shop-resource-item">
+          <span class="res-icon">🪨</span>
+          <span class="res-name">보유 돌:</span>
+          <span id="shop-stone-balance" class="res-val">0개</span>
+        </div>
+        <div class="shop-resource-item">
+          <span class="res-icon">🌱</span>
+          <span class="res-name">보유 씨앗:</span>
+          <span id="shop-sapling-balance" class="res-val highlight">0개</span>
+        </div>
+      </div>
+
+      <div class="shop-body">
+        <div class="shop-trades-container">
+          <!-- 교환 품목 1: 흙 10개 -> 씨앗 1개 -->
+          <div class="shop-trade-card">
+            <div class="trade-materials">
+              <div class="trade-side input-side">
+                <span class="trade-icon">🟫</span>
+                <span class="trade-qty">× 10</span>
+                <span class="trade-label">흙 블럭</span>
+              </div>
+              <div class="trade-arrow">➔</div>
+              <div class="trade-side output-side">
+                <span class="trade-icon">🌱</span>
+                <span class="trade-qty">× 1</span>
+                <span class="trade-label">나무 씨앗</span>
+              </div>
+            </div>
+            <div class="trade-actions">
+              <button id="btn-buy-seed-dirt-1" class="shop-btn primary-btn">씨앗 1개 교환</button>
+              <button id="btn-buy-seed-dirt-max" class="shop-btn secondary-btn">최대 교환</button>
+            </div>
+          </div>
+
+          <!-- 교환 품목 2: 돌 10개 -> 씨앗 1개 -->
+          <div class="shop-trade-card">
+            <div class="trade-materials">
+              <div class="trade-side input-side">
+                <span class="trade-icon">🪨</span>
+                <span class="trade-qty">× 10</span>
+                <span class="trade-label">돌 블럭</span>
+              </div>
+              <div class="trade-arrow">➔</div>
+              <div class="trade-side output-side">
+                <span class="trade-icon">🌱</span>
+                <span class="trade-qty">× 1</span>
+                <span class="trade-label">나무 씨앗</span>
+              </div>
+            </div>
+            <div class="trade-actions">
+              <button id="btn-buy-seed-stone-1" class="shop-btn primary-btn">씨앗 1개 교환</button>
+              <button id="btn-buy-seed-stone-max" class="shop-btn secondary-btn">최대 교환</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 식수 규칙 안내 패널 -->
+        <div class="shop-rules-panel">
+          <h4>🌲 나무 씨앗 심기 규칙 및 안내</h4>
+          <ul>
+            <li><strong>🌱 심기 가능 구역:</strong> <u>내가 분양받은 대지</u> 또는 <u>자원 구역 (개발도상국)</u>에만 심을 수 있습니다.</li>
+            <li><strong>🚫 심기 불가:</strong> 마을 도로, 중앙 광장, 다른 학생의 대지에는 심을 수 없습니다.</li>
+            <li><strong>📍 조건:</strong> 잔디, 흙, 돌 블럭의 평평한 윗면을 바라보고 우클릭(또는 <kbd>/</kbd> 키)하면 즉시 참나무가 자라납니다. (상단 4칸 이상의 공간 필요)</li>
+            <li><strong>🌍 숲 복원:</strong> 자원 구역에 심은 나무는 환경 수치에 반영되어 대재앙을 예방하고 숲을 되살립니다!</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="shop-footer">
+        <span class="shop-tip">💡 <kbd>B</kbd> 키를 누르거나 마을 공원의 <strong>🏪 종묘 상점 가판대</strong>를 우클릭하면 상점을 열 수 있습니다.</span>
       </div>
     </div>
   </div>

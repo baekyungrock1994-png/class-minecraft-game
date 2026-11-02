@@ -138,8 +138,8 @@ export class ChestManager {
     let success = false;
     if (sourceSlot.blockType !== undefined) {
       success = hotbar.addResource(sourceSlot.blockType, sourceSlot.count);
-    } else if (sourceSlot.itemType === 'STICK') {
-      success = hotbar.addItem('STICK', sourceSlot.count);
+    } else if (sourceSlot.itemType) {
+      success = hotbar.addItem(sourceSlot.itemType, sourceSlot.count);
     }
 
     if (success) {

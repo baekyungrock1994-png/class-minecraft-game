@@ -88,6 +88,7 @@ export class PlayerController {
   public onUseItem?: () => boolean; // 핫바 아이템(마을 귀환석 등) 우클릭 사용 콜백
   public onDropItem?: (all: boolean) => void; // Q 키로 손에 든 아이템 버리기 콜백
   public onBowlInteract?: (action: 'scoop' | 'pour', x: number, y: number, z: number) => boolean; // [요구사항 12]: 바가지 물 상호작용
+  public onOpenShop?: () => void; // 상점 열기 콜백
 
   // 평화 모드 (PVP 원천 차단)
   public readonly isPvpAllowed: boolean = false;
@@ -243,6 +244,14 @@ export class PlayerController {
         return;
       }
 
+      // [상점 열기]: 'B' 키를 누르면 상점 열기
+      if (e.code === 'KeyB' && !isInputActive && !this.isModalOpen) {
+        e.preventDefault();
+        if (this.onOpenShop) {
+          this.onOpenShop();
+        }
+        return;
+      }
 
       // 모달창이 열려있거나 텍스트 입력 중일 때는 게임 내 이동 키 입력 차단
       if (isInputActive || this.isModalOpen) {
@@ -888,6 +897,14 @@ export class PlayerController {
       if (this.onOpenChest) {
         const chestKey = `${this.targetBlock.x}_${this.targetBlock.y}_${this.targetBlock.z}`;
         this.onOpenChest(chestKey);
+        return;
+      }
+    }
+
+    // 만약 바라보고 있는 대상 블록이 상점 건물이면 상점 열기!
+    if (this.world.isShopStructure(this.targetBlock.x, this.targetBlock.y, this.targetBlock.z)) {
+      if (this.onOpenShop) {
+        this.onOpenShop();
         return;
       }
     }

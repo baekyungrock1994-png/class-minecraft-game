@@ -272,7 +272,7 @@ export class VoxelWorld {
     this.switchWorld('town');
   }
 
-  private getKey(x: number, y: number, z: number): string {
+  public getKey(x: number, y: number, z: number): string {
     return `${x},${y},${z}`;
   }
 
@@ -534,6 +534,43 @@ export class VoxelWorld {
       signGroup.position.set(plot.minX + 0.5, 4.0, plot.minZ - 0.5);
       this.plotSignsGroup.add(signGroup);
     }
+
+    // 마을 종묘 상점 안내 표지판 (x: -5, Y: 4, z: 43.5)
+    const shopSignGroup = new THREE.Group();
+    const shopPostGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.3, 6);
+    const shopPostMat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
+    const shopPost = new THREE.Mesh(shopPostGeo, shopPostMat);
+    shopPost.position.set(0, 0.65, 0);
+    shopSignGroup.add(shopPost);
+
+    const sCanvas = document.createElement('canvas');
+    sCanvas.width = 320;
+    sCanvas.height = 160;
+    const sCtx = sCanvas.getContext('2d')!;
+    sCtx.fillStyle = '#c49a62';
+    sCtx.fillRect(0, 0, 320, 160);
+    sCtx.strokeStyle = '#9c6f37';
+    sCtx.lineWidth = 4;
+    sCtx.strokeRect(2, 2, 316, 156);
+    sCtx.textAlign = 'center';
+    sCtx.textBaseline = 'middle';
+    sCtx.font = '900 40px sans-serif';
+    sCtx.fillStyle = '#261609';
+    sCtx.fillText(`🏪 종묘 상점`, 160, 52);
+    sCtx.font = 'bold 26px sans-serif';
+    sCtx.fillStyle = '#1e3a1e';
+    sCtx.fillText(`나무 씨앗 교환 [B]`, 160, 112);
+
+    const sTexture = new THREE.CanvasTexture(sCanvas);
+    sTexture.magFilter = THREE.NearestFilter;
+    sTexture.minFilter = THREE.NearestFilter;
+    const sSpriteMat = new THREE.SpriteMaterial({ map: sTexture, depthTest: true });
+    const sSprite = new THREE.Sprite(sSpriteMat);
+    sSprite.scale.set(2.4, 1.2, 1.0);
+    sSprite.position.set(0, 1.6, 0);
+    shopSignGroup.add(sSprite);
+    shopSignGroup.position.set(-5, 4.0, 43.5);
+    this.plotSignsGroup.add(shopSignGroup);
   }
 
   public getPlotAt(x: number, z: number): PlotInfo | null {
@@ -570,6 +607,10 @@ export class VoxelWorld {
         }
         return true; // 기둥 및 테두리 파괴 차단
       }
+      // 공원 종묘 상점 구조체 보호
+      if (this.isShopStructure(ix, iy, iz)) {
+        return true;
+      }
     }
 
     // 3. 자원 구역 (resource): 마을 복귀 신성한 제단 (x: -3~+3, z: -7~-1, y: 0~8) 파괴 불가
@@ -593,10 +634,14 @@ export class VoxelWorld {
   }
 
   /**
-   * 기존 호환용 메서드
+   * 해당 좌표가 마을 종묘 상점 구조체인지 검사
    */
-  public isArenaZone(x: number, z: number): boolean {
-    return this.isPeaceParkZone(x, z);
+  public isShopStructure(x: number, y: number, z: number): boolean {
+    if (this.currentWorldType !== 'town') return false;
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const iz = Math.floor(z);
+    return ix >= -7 && ix <= -3 && iz >= 43 && iz <= 47 && iy >= 4 && iy <= 8;
   }
 
   /**
@@ -858,6 +903,31 @@ export class VoxelWorld {
       }
     }
 
+    // 6) 마을 공원 종묘 상점 (Seed Nursery Shop) 건축 (x: -6~-4, z: 44~46)
+    for (let x = -7; x <= -3; x++) {
+      for (let z = 43; z <= 47; z++) {
+        this.townBlocks.set(this.getKey(x, 4, z), BlockType.PLANK);
+      }
+    }
+    for (let x = -6; x <= -4; x++) {
+      this.townBlocks.set(this.getKey(x, 5, 45), BlockType.WOOD_STAIR);
+    }
+    for (const sx of [-6, -4]) {
+      for (const sz of [44, 46]) {
+        this.townBlocks.set(this.getKey(sx, 5, sz), BlockType.WOOD);
+        this.townBlocks.set(this.getKey(sx, 6, sz), BlockType.WOOD);
+        this.townBlocks.set(this.getKey(sx, 7, sz), BlockType.WOOD);
+      }
+    }
+    for (let x = -7; x <= -3; x++) {
+      for (let z = 43; z <= 47; z++) {
+        const isAwningEdge = (x === -7 || x === -3 || z === 43 || z === 47);
+        this.townBlocks.set(this.getKey(x, 8, z), isAwningEdge ? BlockType.LEAF : BlockType.PLANK);
+      }
+    }
+    this.townBlocks.set(this.getKey(-6, 6, 45), BlockType.LEAF);
+    this.townBlocks.set(this.getKey(-4, 6, 45), BlockType.LEAF);
+
     // 5-2. 우물 4개 모서리 원목 기둥 (x: -1, 2 / z: 50, 53, Y=5~7)
     const wellPillars = [
       { x: -1, z: 50 }, { x: 2, z: 50 },
@@ -1092,6 +1162,27 @@ export class VoxelWorld {
         leafKeys
       });
     }
+  }
+
+  /**
+   * 플레이어가 자원 구역(개발도상국)에 나무 씨앗을 심었을 때 나무 등록
+   */
+  public registerPlantedTreeInResource(
+    rootX: number,
+    rootY: number,
+    rootZ: number,
+    trunkKeys: string[],
+    leafKeys: string[]
+  ): void {
+    const nextId = this.resourceTrees.length + 1000 + Math.floor(Math.random() * 10000);
+    this.resourceTrees.push({
+      id: nextId,
+      rootX,
+      rootY,
+      rootZ,
+      trunkKeys,
+      leafKeys
+    });
   }
 
   /**

@@ -213,7 +213,7 @@ export class CraftingUI {
   public onOpen?: () => void;
   public onCraftSuccess?: (msg: string) => void;
   public onClose?: () => void;
-  public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER'; toolType?: ToolType; count: number }) => void;
+  public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER' | 'TREE_SAPLING'; toolType?: ToolType; count: number }) => void;
 
   constructor(hotbar: HotbarUI) {
     this.hotbar = hotbar;

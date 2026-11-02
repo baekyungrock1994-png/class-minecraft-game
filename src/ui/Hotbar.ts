@@ -9,7 +9,7 @@ export interface InventorySlot {
   blockType?: BlockType;
 
   isItem?: boolean;
-  itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER';
+  itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER' | 'TREE_SAPLING';
   itemName?: string;
   itemEmoji?: string;
 
@@ -82,9 +82,9 @@ export class HotbarUI {
     }
   }
 
-  public getCount(type: BlockType | 'STICK'): number {
-    if (type === 'STICK') {
-      const slot = this.slots.find(s => s.isItem && s.itemType === 'STICK');
+  public getCount(type: BlockType | 'STICK' | 'TREE_SAPLING'): number {
+    if (type === 'STICK' || type === 'TREE_SAPLING') {
+      const slot = this.slots.find(s => s.isItem && s.itemType === type);
       return slot ? slot.count : 0;
     }
     const slot = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type);
@@ -94,7 +94,7 @@ export class HotbarUI {
   /**
    * 여유 공간이 있는지 확인 (스택 가능하거나 빈 슬롯이 있으면 true)
    */
-  public hasSpaceFor(type: BlockType | 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER', amount: number = 1): boolean {
+  public hasSpaceFor(type: BlockType | 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER' | 'TREE_SAPLING', amount: number = 1): boolean {
     if (typeof type === 'string') {
       const existing = this.slots.find(s => s.isItem && s.itemType === type && s.count + amount <= 64);
       if (existing) return true;
@@ -171,7 +171,7 @@ export class HotbarUI {
     return false;
   }
 
-  public addItem(itemType: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER', amount: number = 1): boolean {
+  public addItem(itemType: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER' | 'TREE_SAPLING', amount: number = 1): boolean {
     let slot = this.slots.find(s => s.isItem && s.itemType === itemType && s.count < 64);
     if (!slot) {
       slot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
@@ -191,6 +191,9 @@ export class HotbarUI {
         } else if (itemType === 'BOWL_WATER') {
           slot.itemName = '물 담긴 바가지';
           slot.itemEmoji = '🥣💧';
+        } else if (itemType === 'TREE_SAPLING') {
+          slot.itemName = '나무 씨앗';
+          slot.itemEmoji = '🌱';
         }
         slot.count = 0;
       }
@@ -224,11 +227,20 @@ export class HotbarUI {
     return true;
   }
 
-  public consumeItem(itemType: 'STICK', amount: number = 1): boolean {
+  public consumeItem(itemType: 'STICK' | 'TREE_SAPLING', amount: number = 1): boolean {
     const slot = this.slots.find(s => s.isItem && s.itemType === itemType);
     if (slot && slot.count >= amount) {
       slot.count -= amount;
+      if (slot.count === 0) {
+        slot.isItem = false;
+        slot.itemType = undefined;
+        slot.itemName = undefined;
+        slot.itemEmoji = undefined;
+      }
       this.render();
+      if (this.onSelectChange) {
+        this.onSelectChange(this.getSelectedSlot());
+      }
       return true;
     }
     return false;

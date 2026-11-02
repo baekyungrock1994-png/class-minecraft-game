@@ -408,6 +408,32 @@ html, body {
   background: linear-gradient(135deg, #d97706, #92400e);
 }
 
+.shop-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #059669, #065f46);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.shop-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.6);
+  background: linear-gradient(135deg, #10b981, #047857);
+}
+
 /* 중앙 알림 배너 */
 #notification-banner {
   align-self: center;
@@ -3456,6 +3482,281 @@ kbd {
   font-weight: 900;
   color: #ef4444;
 }
+
+/* ==========================================================================
+   마을 종묘 상점 (Shop UI)
+   ========================================================================== */
+.shop-card {
+  width: 90%;
+  max-width: 620px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(16, 185, 129, 0.15);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.shop-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.12) 0%, transparent 100%);
+}
+
+.shop-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-title h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: -0.3px;
+}
+
+.shop-subtitle {
+  margin: 3px 0 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.shop-icon {
+  font-size: 28px;
+  filter: drop-shadow(0 2px 8px rgba(16, 185, 129, 0.4));
+}
+
+.shop-resources-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: rgba(30, 41, 59, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 20px;
+}
+
+.shop-resource-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.shop-resource-item .res-icon {
+  font-size: 16px;
+}
+
+.shop-resource-item .res-name {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.shop-resource-item .res-val {
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.shop-resource-item .res-val.highlight {
+  color: #34d399;
+}
+
+.shop-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(85vh - 180px);
+  overflow-y: auto;
+}
+
+.shop-trades-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.shop-trade-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  transition: all 0.2s ease;
+}
+
+.shop-trade-card:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(16, 185, 129, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.trade-materials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.trade-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.trade-icon {
+  font-size: 26px;
+}
+
+.trade-qty {
+  font-size: 12px;
+  font-weight: 800;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.8);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.trade-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.trade-arrow {
+  font-size: 18px;
+  color: #10b981;
+  font-weight: 900;
+}
+
+.trade-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.shop-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.shop-btn.primary-btn {
+  background: linear-gradient(135deg, #059669, #047857);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+}
+
+.shop-btn.primary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #10b981, #059669);
+  transform: translateY(-1px);
+}
+
+.shop-btn.secondary-btn {
+  background: rgba(51, 65, 85, 0.8);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shop-btn.secondary-btn:hover:not(:disabled) {
+  background: rgba(71, 85, 105, 1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.shop-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.shop-rules-panel {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.shop-rules-panel h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #34d399;
+}
+
+.shop-rules-panel ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.shop-rules-panel li {
+  margin-bottom: 4px;
+}
+
+.shop-rules-panel strong {
+  color: #f1f5f9;
+}
+
+.shop-rules-panel u {
+  color: #6ee7b7;
+  text-decoration: none;
+  font-weight: 700;
+  border-bottom: 1px dotted #34d399;
+}
+
+.shop-rules-panel kbd {
+  background: #334155;
+  color: #f8fafc;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #475569;
+}
+
+.shop-footer {
+  padding: 12px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.shop-tip {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.shop-tip kbd {
+  background: #334155;
+  color: #f8fafc;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #475569;
+}
+
 
 
 

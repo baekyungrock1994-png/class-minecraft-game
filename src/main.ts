@@ -3,6 +3,7 @@ import { VoxelWorld } from './core/VoxelWorld.ts';
 import { PlayerController, BlockInteractEvent } from './game/PlayerController.ts';
 import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
+import { ShopUI } from './ui/ShopUI.ts';
 import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS } from './core/Constants.ts';
 import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData } from './core/NetworkManager.ts';
 import { ItemDropManager } from './game/ItemDropManager.ts';
@@ -18,6 +19,7 @@ class GameApp {
   private player: PlayerController;
   private hotbar: HotbarUI;
   private craftingUI: CraftingUI;
+  private shopUI: ShopUI;
   public networkManager: NetworkManager;
   public itemDropManager: ItemDropManager;
   public chestManager: ChestManager;
@@ -294,6 +296,9 @@ class GameApp {
         } else if (dropped.itemType === 'BOWL_WATER') {
           name = '물 바가지';
           emoji = '🌊';
+        } else if (dropped.itemType === 'TREE_SAPLING') {
+          name = '나무 씨앗';
+          emoji = '🌱';
         }
         this.itemDropManager.spawnDropItem({
           type: 'item',
@@ -397,6 +402,23 @@ class GameApp {
       );
     };
 
+    // 마을 종묘 상점 시스템 연동
+    this.shopUI = new ShopUI(this.hotbar);
+    this.shopUI.onOpen = () => {
+      this.player.setModalOpen(true);
+    };
+    this.shopUI.onClose = () => {
+      this.player.setModalOpen(false);
+      this.requestPointerLockSafely();
+    };
+    this.shopUI.onTradeSuccess = (msg: string) => {
+      this.showNotification(msg, '🌱');
+      this.updatePlayerSelectedItem();
+    };
+    this.player.onOpenShop = () => {
+      this.shopUI.open();
+    };
+
     // [수정사항 2]: 핫바 9번 '마을 귀환석' 우클릭 사용 시 평지 마을(내 대지)로 즉시 귀환
     this.player.onUseItem = () => {
       const slot = this.hotbar.getSelectedSlot();
@@ -411,6 +433,9 @@ class GameApp {
         this.requestPointerLockSafely();
         return true;
       }
+      if (slot.isItem && slot.itemType === 'TREE_SAPLING') {
+        return this.handlePlantTreeSapling();
+      }
       return false;
     };
 
@@ -420,6 +445,15 @@ class GameApp {
         e.stopPropagation();
         this.player.isModalOpen = true;
         this.craftingUI.open();
+      });
+    }
+
+    const btnOpenShop = document.getElementById('btn-open-shop');
+    if (btnOpenShop) {
+      btnOpenShop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.player.isModalOpen = true;
+        this.shopUI.open();
       });
     }
 
@@ -2724,6 +2758,9 @@ class GameApp {
     if (slot.itemType === 'BOWL_WATER') {
       return { emoji: '🌊', name: '물 바가지' };
     }
+    if (slot.itemType === 'TREE_SAPLING') {
+      return { emoji: '🌱', name: '나무 씨앗' };
+    }
     return { emoji: '', name: '빈 슬롯' };
   }
 
@@ -2802,7 +2839,109 @@ class GameApp {
     });
   }
 
+  /**
+   * [나무 씨앗 심기]: 자기가 분양받은 대지 또는 자원 구역(개발도상국)에만 참나무 식수 가능
+   */
+  private handlePlantTreeSapling(): boolean {
+    if (!this.player.targetBlock) return false;
 
+    const { x, y, z, normal } = this.player.targetBlock;
+
+    // 1. 블록의 윗면(normal.y === 1)을 바라보고 우클릭해야 함
+    if (normal[1] !== 1) {
+      this.showNotification('🌱 나무 씨앗은 블록 윗면에만 심을 수 있습니다!', '🚫');
+      return true;
+    }
+
+    // 2. 바닥 지형 블록 확인 (잔디, 흙, 돌 위에만 식수 가능)
+    const groundType = this.world.getBlock(x, y, z);
+    if (groundType !== BlockType.GRASS && groundType !== BlockType.DIRT && groundType !== BlockType.STONE) {
+      this.showNotification('🌱 나무 씨앗은 잔디, 흙, 또는 돌 블럭 위에만 심을 수 있습니다!', '🚫');
+      return true;
+    }
+
+    const plantX = x;
+    const plantY = y + 1;
+    const plantZ = z;
+
+    // 3. 심기 가능 구역 검증
+    const isResourceWorld = this.world.currentWorldType === 'resource';
+    const isTeacher = (this.networkManager && this.networkManager.role === 'teacher') || this.player.bypassPlotRestriction;
+
+    if (isResourceWorld) {
+      // 자원 구역(개발도상국): 포털 제단 및 보호 구역 외에는 자유롭게 식수 가능
+      if (this.world.isProtectedBlock(plantX, plantY, plantZ)) {
+        this.showNotification('🚫 자원 구역 차원문 제단 근처에는 나무를 심을 수 없습니다!', '⚠️');
+        return true;
+      }
+    } else {
+      // 평지 주거 마을: 자기가 분양받은 대지(내 땅) 내에서만 심을 수 있음
+      const plot = this.world.getPlotAt(plantX, plantZ);
+      if (!isTeacher) {
+        if (!plot || plot.id !== this.player.assignedPlotIndex) {
+          this.showNotification(`🚫 나무는 자기가 분양받은 땅(#${this.player.assignedPlotIndex})이나 자원 구역에만 심을 수 있습니다!`, '⚠️');
+          return true;
+        }
+      }
+    }
+
+    // 4. 상단 공간 확보 확인 (기둥 4칸 + 잎 1칸 = 총 5칸)
+    for (let dy = 0; dy < 5; dy++) {
+      if (this.world.getBlock(plantX, plantY + dy, plantZ) !== BlockType.AIR) {
+        this.showNotification('🚫 나무가 자라날 위쪽 공간이 부족합니다! (상단 5칸 공간 필요)', '⚠️');
+        return true;
+      }
+    }
+
+    // 5. 핫바에서 씨앗 1개 소모
+    const consumed = this.hotbar.consumeItem('TREE_SAPLING', 1);
+    if (!consumed) return true;
+
+    // 6. 참나무 즉시 식수 (기둥 4칸 WOOD + 5x5 LEAF 캐노피)
+    const trunkHeight = 4;
+    const trunkKeys: string[] = [];
+    const leafKeys: string[] = [];
+
+    // 기둥 생성
+    for (let dy = 0; dy < trunkHeight; dy++) {
+      const ty = plantY + dy;
+      this.world.setBlock(plantX, ty, plantZ, BlockType.WOOD);
+      trunkKeys.push(this.world.getKey(plantX, ty, plantZ));
+      this.networkManager.sendBlockDelta(this.world.currentWorldType, plantX, ty, plantZ, BlockType.WOOD);
+    }
+
+    // 나뭇잎 생성 (5x5, 3단 캐노피)
+    const leafStartY = plantY + trunkHeight - 2;
+    for (let lx = -2; lx <= 2; lx++) {
+      for (let lz = -2; lz <= 2; lz++) {
+        for (let ly = 0; ly <= 2; ly++) {
+          // 꼭짓점 상단 제외하여 둥근 수관 형성
+          if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === 2) continue;
+          const px = plantX + lx;
+          const py = leafStartY + ly;
+          const pz = plantZ + lz;
+          if (this.world.getBlock(px, py, pz) === BlockType.AIR) {
+            this.world.setBlock(px, py, pz, BlockType.LEAF);
+            leafKeys.push(this.world.getKey(px, py, pz));
+            this.networkManager.sendBlockDelta(this.world.currentWorldType, px, py, pz, BlockType.LEAF);
+          }
+        }
+      }
+    }
+
+    // 7. 자원 구역일 경우 resourceTrees 목록에 정식 등록 및 환경/벌목 카운트 갱신
+    if (isResourceWorld) {
+      this.world.registerPlantedTreeInResource(plantX, plantY, plantZ, trunkKeys, leafKeys);
+      this.checkDeforestation();
+      this.showNotification('🌱 자원 구역에 참나무를 심어 숲을 복원했습니다! (환경 수치 회복)', '🌲');
+    } else {
+      this.showNotification(`🌱 내 대지(#${this.player.assignedPlotIndex})에 참나무를 심었습니다!`, '🏡');
+    }
+
+    this.player.viewModel.triggerSwing();
+    this.updatePlayerSelectedItem();
+    return true;
+  }
 }
 
 // 앱 실행

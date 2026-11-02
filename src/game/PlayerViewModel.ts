@@ -203,6 +203,11 @@ export class PlayerViewModel {
       this.itemHolder.add(this.currentItemMesh);
       return;
     }
+    if (itemType === 'TREE_SAPLING') {
+      this.currentItemMesh = this.createSaplingModel();
+      this.itemHolder.add(this.currentItemMesh);
+      return;
+    }
 
     // 4. 맨손일 경우: 아무것도 추가하지 않음 (맨손 팔만 노출되어 휘적임)
   }
@@ -356,6 +361,36 @@ export class PlayerViewModel {
     const stickGeo = new THREE.BoxGeometry(0.035, 0.38, 0.035);
     const stickMesh = new THREE.Mesh(stickGeo, stickMat);
     group.add(stickMesh);
+    return group;
+  }
+
+  /**
+   * 나무 씨앗 (묘목) 3D 모델
+   */
+  private createSaplingModel(): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(0.04, 0.16, 0.1);
+    group.rotation.set(-0.25, 0.25, -0.4);
+
+    // 작은 묘목 줄기
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0x854d0e });
+    const stemGeo = new THREE.BoxGeometry(0.03, 0.24, 0.03);
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    group.add(stem);
+
+    // 파릇파릇한 새싹 잎
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x22c55e });
+    const leafGeo = new THREE.BoxGeometry(0.1, 0.06, 0.08);
+    const leaf1 = new THREE.Mesh(leafGeo, leafMat);
+    leaf1.position.set(0.04, 0.08, 0);
+    leaf1.rotation.z = -0.3;
+    group.add(leaf1);
+
+    const leaf2 = new THREE.Mesh(leafGeo, leafMat);
+    leaf2.position.set(-0.04, 0.04, 0);
+    leaf2.rotation.z = 0.3;
+    group.add(leaf2);
+
     return group;
   }
 }
