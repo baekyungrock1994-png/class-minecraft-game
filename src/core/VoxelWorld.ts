@@ -114,14 +114,23 @@ export class VoxelWorld {
 
   // 청크 기반 지형 분할 렌더러 (평지 마을 & 자원 구역 독립 캐싱 -> 월드 전환 렉 0ms)
   private townChunkMeshes: Map<string, THREE.Mesh> = new Map();
+  private townWaterChunkMeshes: Map<string, THREE.Mesh> = new Map();
   private townChunkGroup: THREE.Group = new THREE.Group();
 
   private resourceChunkMeshes: Map<string, THREE.Mesh> = new Map();
+  private resourceWaterChunkMeshes: Map<string, THREE.Mesh> = new Map();
   private resourceChunkGroup: THREE.Group = new THREE.Group();
 
   public plotSignsGroup: THREE.Group = new THREE.Group();
 
   private sharedMaterial: THREE.MeshLambertMaterial;
+
+  // 찰랑거리는 3D 파도 애니메이션을 가진 전용 물 재질
+  public waterMaterial: THREE.MeshStandardMaterial;
+  public waterUniforms = {
+    uTime: { value: 0 },
+  };
+  private waterTime: number = 0;
 
   // 자연 웅덩이/호수 전용 수면 메시와 대재앙 홍수 메시 분리 (산/지하 관통 방지)
   public resourceWaterMesh!: THREE.Mesh;
@@ -159,18 +168,85 @@ export class VoxelWorld {
     this.scene.add(this.resourceChunkGroup);
     this.scene.add(this.plotSignsGroup);
 
-    const waterMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3b82f6,
+    this.waterMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0284c7, // 청량하고 맑은 스카이 블루
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.72,
       roughness: 0.1,
-      metalness: 0.2,
+      metalness: 0.15,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
+
+    this.waterMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.waterUniforms.uTime;
+
+      shader.vertexShader = `
+        uniform float uTime;
+        varying vec3 vWorldPosition;
+        varying float vWaveDisplacement;
+        ${shader.vertexShader}
+      `;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `
+        #include <begin_vertex>
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPos.xyz;
+
+        // 윗면(Top face): 찰랑거리는 부드러운 유기적 파도 모션
+        if (normal.y > 0.5) {
+          float wave1 = sin(uTime * 3.5 + worldPos.x * 2.8 + worldPos.z * 2.4) * 0.055;
+          float wave2 = cos(uTime * 2.6 - worldPos.x * 2.1 + worldPos.z * 3.2) * 0.035;
+          float wave3 = sin(uTime * 5.0 + (worldPos.x + worldPos.z) * 1.8) * 0.02;
+          float totalWave = wave1 + wave2 + wave3;
+          transformed.y += totalWave;
+          vWaveDisplacement = totalWave;
+        } else if (abs(normal.y) < 0.5) {
+          // 옆면(Side faces): 찰랑거리는 측면 물결 흔들림
+          float sideWave = sin(uTime * 2.8 + worldPos.y * 3.5 + (worldPos.x + worldPos.z) * 1.6) * 0.018;
+          transformed.x += normal.x * sideWave;
+          transformed.z += normal.z * sideWave;
+          vWaveDisplacement = 0.0;
+        } else {
+          vWaveDisplacement = 0.0;
+        }
+        `
+      );
+
+      shader.fragmentShader = `
+        uniform float uTime;
+        varying vec3 vWorldPosition;
+        varying float vWaveDisplacement;
+        ${shader.fragmentShader}
+      `;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `
+        // 찰랑거리는 물결 표면 빛 반사 하이라이트 (Crest & Ripple Shimmer)
+        float rip1 = sin(uTime * 3.2 + vWorldPosition.x * 4.2 + vWorldPosition.z * 3.8);
+        float rip2 = cos(uTime * 2.5 - vWorldPosition.x * 3.4 + vWorldPosition.z * 4.6);
+        float shimmer = pow(max(0.0, (rip1 + rip2) * 0.5), 3.5) * 0.35;
+
+        // 파도 높은 물마루의 반짝임
+        float crest = smoothstep(0.03, 0.08, vWaveDisplacement) * 0.28;
+
+        outgoingLight += vec3(0.35, 0.65, 1.0) * shimmer + vec3(0.75, 0.9, 1.0) * crest;
+
+        #include <opaque_fragment>
+        `
+      );
+    };
 
     // 1. 대재앙 전용 홍수 메시 (평소에는 평지마을에서 숨김)
     const disasterGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2);
     disasterGeometry.rotateX(-Math.PI / 2);
-    this.disasterWaterMesh = new THREE.Mesh(disasterGeometry, waterMaterial);
+    this.disasterWaterMesh = new THREE.Mesh(disasterGeometry, this.waterMaterial);
     this.disasterWaterMesh.position.set(0, 1.0 - 0.15, 0);
     this.disasterWaterMesh.visible = false;
     this.scene.add(this.disasterWaterMesh);
@@ -182,8 +258,8 @@ export class VoxelWorld {
     this.generateTownTerrain();
     this.generateResourceTerrain();
 
-    // 4. 자원 구역 전용 수면 메시: 자연 웅덩이/호수 셀에만 정확히 생성 (산이나 흙 지하를 가로지르지 않음!)
-    this.resourceWaterMesh = this.buildResourceWaterMesh(waterMaterial);
+    // 4. 자원 구역 전용 수면 메시: 자연 웅덩이/호수 셀에만 정확히 생성
+    this.resourceWaterMesh = this.buildResourceWaterMesh(this.waterMaterial);
     this.resourceWaterMesh.visible = false;
     this.scene.add(this.resourceWaterMesh);
 
@@ -1114,11 +1190,17 @@ export class VoxelWorld {
     const blockMap = worldType === 'town' ? this.townBlocks : this.resourceBlocks;
     const chunkGroup = worldType === 'town' ? this.townChunkGroup : this.resourceChunkGroup;
     const chunkMeshes = worldType === 'town' ? this.townChunkMeshes : this.resourceChunkMeshes;
+    const waterChunkMeshes = worldType === 'town' ? this.townWaterChunkMeshes : this.resourceWaterChunkMeshes;
 
     const positions: number[] = [];
     const normals: number[] = [];
     const colors: number[] = [];
     const uvs: number[] = [];
+
+    const waterPositions: number[] = [];
+    const waterNormals: number[] = [];
+    const waterColors: number[] = [];
+    const waterUvs: number[] = [];
 
     const getBlockFromMap = (x: number, y: number, z: number): BlockType => {
       if (y < 0 || y >= WORLD_HEIGHT) return BlockType.AIR;
@@ -1129,8 +1211,48 @@ export class VoxelWorld {
       for (let z = minZ; z < maxZ; z++) {
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           const blockType = getBlockFromMap(x, y, z);
-          if (blockType === BlockType.AIR || blockType === BlockType.WATER) continue;
+          if (blockType === BlockType.AIR) continue;
 
+          // [찰랑거리는 물 블록 렌더링]: 투명 물 전용 메시로 구성
+          if (blockType === BlockType.WATER) {
+            const blockAbove = getBlockFromMap(x, y + 1, z);
+            const isWaterAbove = (blockAbove === BlockType.WATER);
+            const topHeight = isWaterAbove ? 1.0 : 0.88;
+
+            for (const face of FACES) {
+              const nx = x + face.dir[0];
+              const ny = y + face.dir[1];
+              const nz = z + face.dir[2];
+
+              const neighbor = getBlockFromMap(nx, ny, nz);
+              if (neighbor === BlockType.WATER) continue; // 인접 물 면 컬링
+
+              const neighborMeta = BLOCK_METAS[neighbor];
+              const isNeighborOpaque = (neighbor !== BlockType.AIR && neighborMeta && !neighborMeta.transparent);
+              if (isNeighborOpaque) {
+                // 불투명 고체 블록(돌, 흙 등)과 맞닿은 물 면은 고체 블록 내벽이 렌더링되므로 컬링 (Z-fighting 방지)
+                continue;
+              }
+
+              let shade = 0.95;
+              if (face.dir[1] === 1) shade = 1.0;
+              else if (face.dir[1] === -1) shade = 0.7;
+              else if (face.dir[0] !== 0) shade = 0.85;
+              else shade = 0.9;
+
+              for (let i = 0; i < 6; i++) {
+                const corner = face.corners[i];
+                const cornerY = corner[1] === 1 ? topHeight : 0.0;
+                waterPositions.push(x + corner[0], y + cornerY, z + corner[2]);
+                waterNormals.push(face.dir[0], face.dir[1], face.dir[2]);
+                waterColors.push(shade, shade, shade);
+                waterUvs.push(face.uv[i * 2 + 0], face.uv[i * 2 + 1]);
+              }
+            }
+            continue;
+          }
+
+          // 일반 고체 블록 렌더링
           for (const face of FACES) {
             const nx = x + face.dir[0];
             const ny = y + face.dir[1];
@@ -1139,7 +1261,7 @@ export class VoxelWorld {
             const neighbor = getBlockFromMap(nx, ny, nz);
             const neighborMeta = BLOCK_METAS[neighbor];
 
-            if (neighbor === BlockType.AIR || (neighborMeta.transparent && neighbor !== blockType)) {
+            if (neighbor === BlockType.AIR || (neighborMeta && neighborMeta.transparent && neighbor !== blockType)) {
               // 블록 타입과 면 방향(윗면, 옆면, 밑면)에 따른 텍스처 아틀라스 타일 결정
               const tileIndex = getTileIndexForBlockFace(blockType, face.dir[1]);
 
@@ -1167,33 +1289,57 @@ export class VoxelWorld {
       }
     }
 
+    // 1. 고체 블록 청크 메시 갱신
     let mesh = chunkMeshes.get(chunkKey);
-
     if (positions.length === 0) {
       if (mesh) {
         chunkGroup.remove(mesh);
         mesh.geometry.dispose();
         chunkMeshes.delete(chunkKey);
       }
-      return;
+    } else {
+      if (!mesh) {
+        const geo = new THREE.BufferGeometry();
+        mesh = new THREE.Mesh(geo, this.sharedMaterial);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        chunkGroup.add(mesh);
+        chunkMeshes.set(chunkKey, mesh);
+      }
+      const geometry = mesh.geometry;
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
     }
 
-    if (!mesh) {
-      const geo = new THREE.BufferGeometry();
-      mesh = new THREE.Mesh(geo, this.sharedMaterial);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      chunkGroup.add(mesh);
-      chunkMeshes.set(chunkKey, mesh);
+    // 2. 찰랑거리는 물 블록 청크 메시 갱신
+    let waterMesh = waterChunkMeshes.get(chunkKey);
+    if (waterPositions.length === 0) {
+      if (waterMesh) {
+        chunkGroup.remove(waterMesh);
+        waterMesh.geometry.dispose();
+        waterChunkMeshes.delete(chunkKey);
+      }
+    } else {
+      if (!waterMesh) {
+        const geo = new THREE.BufferGeometry();
+        waterMesh = new THREE.Mesh(geo, this.waterMaterial);
+        waterMesh.renderOrder = 1;
+        waterMesh.receiveShadow = true;
+        chunkGroup.add(waterMesh);
+        waterChunkMeshes.set(chunkKey, waterMesh);
+      }
+      const geometry = waterMesh.geometry;
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(waterPositions, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(waterNormals, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(waterColors, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(waterUvs, 2));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
     }
-
-    const geometry = mesh.geometry;
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
   }
 
   /**
@@ -1201,6 +1347,7 @@ export class VoxelWorld {
    */
   public rebuildAllChunksForWorld(worldType: WorldType): void {
     const chunkMeshes = worldType === 'town' ? this.townChunkMeshes : this.resourceChunkMeshes;
+    const waterChunkMeshes = worldType === 'town' ? this.townWaterChunkMeshes : this.resourceWaterChunkMeshes;
     const chunkGroup = worldType === 'town' ? this.townChunkGroup : this.resourceChunkGroup;
 
     for (const mesh of chunkMeshes.values()) {
@@ -1208,6 +1355,12 @@ export class VoxelWorld {
       mesh.geometry.dispose();
     }
     chunkMeshes.clear();
+
+    for (const mesh of waterChunkMeshes.values()) {
+      chunkGroup.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    waterChunkMeshes.clear();
 
     const size = worldType === 'town' ? WORLD_SIZE : RESOURCE_WORLD_SIZE;
     const half = Math.floor(size / 2);
@@ -1219,6 +1372,14 @@ export class VoxelWorld {
         this.buildChunkMesh(worldType, cx, cz);
       }
     }
+  }
+
+  /**
+   * 찰랑거리는 물 애니메이션 시간 업데이트
+   */
+  public update(delta: number): void {
+    this.waterTime += delta;
+    this.waterUniforms.uTime.value = this.waterTime;
   }
 
   /**

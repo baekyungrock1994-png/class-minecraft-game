@@ -1860,6 +1860,9 @@ class GameApp {
     requestAnimationFrame(this.animate);
     const delta = Math.min(this.clock.getDelta(), 0.1);
 
+    // 찰랑거리는 물 복셀 파도 및 표면 광택 애니메이션 업데이트
+    this.world.update(delta);
+
     // [수정사항 3]: 시간 자동 흐름 시스템 삭제 - 항상 화창한 정오(낮) 유지
     // animate 루프에서 setTime을 계속 재호출하지 않고 초기 12.0 밝은 낮 상태 유지
 
