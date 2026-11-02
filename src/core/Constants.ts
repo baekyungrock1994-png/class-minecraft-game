@@ -10,6 +10,8 @@ export enum BlockType {
   WATER = 8,
   MAGMA = 9,
   CHEST = 10,
+  IRON_BLOCK = 11,
+  WOOD_STAIR = 12,
 }
 
 // 아이템 전용 (인벤토리 및 조합 재료)
@@ -117,6 +119,20 @@ export const BLOCK_METAS: Record<BlockType, BlockMeta> = {
     iconBg: "linear-gradient(135deg, #a16207, #78350f)",
     emoji: "📦",
   },
+  [BlockType.IRON_BLOCK]: {
+    id: BlockType.IRON_BLOCK,
+    name: "철 블록",
+    color: 0xd4d4d8,
+    iconBg: "linear-gradient(135deg, #e4e4e7, #a1a1aa)",
+    emoji: "🪙",
+  },
+  [BlockType.WOOD_STAIR]: {
+    id: BlockType.WOOD_STAIR,
+    name: "나무 계단",
+    color: 0xb8945f,
+    iconBg: "linear-gradient(135deg, #d4a373, #a26938)",
+    emoji: "🪜",
+  },
 };
 
 export enum ToolType {
@@ -180,7 +196,7 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "나무 곡괭이",
     emoji: "⛏️",
     maxDurability: 59,
-    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA],
+    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK],
     speedMultiplier: 3.5,
   },
   [ToolType.STONE_PICKAXE]: {
@@ -188,7 +204,7 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "돌 곡괭이",
     emoji: "⛏️",
     maxDurability: 131,
-    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA],
+    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK],
     speedMultiplier: 6.0,
   },
   [ToolType.WOOD_AXE]: {
@@ -196,7 +212,7 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "나무 도끼",
     emoji: "🪓",
     maxDurability: 59,
-    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE],
+    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR],
     speedMultiplier: 4.0,
   },
   [ToolType.STONE_AXE]: {
@@ -204,7 +220,7 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "돌 도끼",
     emoji: "🪓",
     maxDurability: 131,
-    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE],
+    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR],
     speedMultiplier: 6.5,
   },
   [ToolType.WOOD_SHOVEL]: {
@@ -238,6 +254,8 @@ export const BLOCK_BREAK_TIMES: Record<BlockType, number> = {
   [BlockType.WATER]: Infinity,
   [BlockType.MAGMA]: 3.0,
   [BlockType.CHEST]: 1.5,
+  [BlockType.IRON_BLOCK]: 4.0,
+  [BlockType.WOOD_STAIR]: 1.4,
 };
 
 // 월드 기본 규격

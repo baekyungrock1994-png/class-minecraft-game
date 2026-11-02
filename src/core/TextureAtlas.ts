@@ -26,6 +26,7 @@ export enum TileIndex {
   CHEST_TOP = 12,
   CHEST_FRONT = 13,
   CHEST_SIDE = 14,
+  IRON_BLOCK = 15,
 }
 
 export function createBlockTextureAtlas(): THREE.CanvasTexture {
@@ -79,6 +80,9 @@ export function createBlockTextureAtlas(): THREE.CanvasTexture {
   // 15. 타일 14: CHEST_SIDE (보관 상자 옆면/뒷면)
   drawChestSide(ctx, 2 * TILE_PIXELS, 3 * TILE_PIXELS);
 
+  // 16. 타일 15: IRON_BLOCK (단단하고 번쩍이는 철 블록)
+  drawIronBlock(ctx, 3 * TILE_PIXELS, 3 * TILE_PIXELS);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
@@ -128,6 +132,12 @@ export function getTileIndexForBlockFace(blockType: BlockType, faceDirY: number)
       if (faceDirY === 1) return TileIndex.CHEST_TOP;
       if (faceDirY === -1) return TileIndex.PLANK;
       return TileIndex.CHEST_FRONT;
+
+    case BlockType.IRON_BLOCK:
+      return TileIndex.IRON_BLOCK;
+
+    case BlockType.WOOD_STAIR:
+      return TileIndex.PLANK;
 
     default:
       return TileIndex.STONE;
@@ -565,4 +575,41 @@ function drawChestSide(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
   setPixel(ctx, ox + 26, oy + 4, '#334155', 2);
   setPixel(ctx, ox + 4, oy + 26, '#334155', 2);
   setPixel(ctx, ox + 26, oy + 26, '#334155', 2);
+}
+
+// 16. 철 블록 (마인크래프트 원작 스타일의 금속 질감과 베벨 테두리)
+function drawIronBlock(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  // 기본 은회색 메탈릭 베이스
+  ctx.fillStyle = '#d4d4d8';
+  ctx.fillRect(ox, oy, 32, 32);
+
+  // 상단 및 좌측 밝은 하이라이트 베벨
+  ctx.fillStyle = '#f4f4f5';
+  ctx.fillRect(ox, oy, 32, 3);
+  ctx.fillRect(ox, oy, 3, 32);
+
+  // 하단 및 우측 짙은 그림자 베벨
+  ctx.fillStyle = '#71717a';
+  ctx.fillRect(ox, oy + 29, 32, 3);
+  ctx.fillRect(ox + 29, oy, 3, 32);
+
+  // 내부 사각 프레임 라인
+  ctx.fillStyle = '#a1a1aa';
+  ctx.fillRect(ox + 4, oy + 4, 24, 1);
+  ctx.fillRect(ox + 4, oy + 4, 1, 24);
+  ctx.fillRect(ox + 4, oy + 27, 24, 1);
+  ctx.fillRect(ox + 27, oy + 4, 1, 24);
+
+  // 메탈릭 도트 질감 디테일
+  setPixel(ctx, ox + 6, oy + 6, '#e4e4e7', 2);
+  setPixel(ctx, ox + 24, oy + 6, '#e4e4e7', 2);
+  setPixel(ctx, ox + 6, oy + 24, '#71717a', 2);
+  setPixel(ctx, ox + 24, oy + 24, '#71717a', 2);
+
+  // 중앙 은색 광택 반사
+  ctx.fillStyle = '#e4e4e7';
+  ctx.fillRect(ox + 10, oy + 10, 12, 12);
+  ctx.fillStyle = '#ffffff';
+  setPixel(ctx, ox + 12, oy + 12, '#ffffff', 2);
+  setPixel(ctx, ox + 16, oy + 14, '#ffffff', 2);
 }

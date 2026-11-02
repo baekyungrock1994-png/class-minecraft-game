@@ -15,11 +15,13 @@ export class PlayerViewModel {
   private itemHolder: THREE.Group;
   private currentToolMesh: THREE.Group | null = null;
   private currentBlockMesh: THREE.Mesh | null = null;
+  private currentItemMesh: THREE.Group | null = null;
   private sharedAtlas: THREE.CanvasTexture;
 
   // 상태 추적
   private lastTool: ToolType = ToolType.NONE;
   private lastBlock: BlockType = BlockType.AIR;
+  private lastItem: string | null = null;
 
   // 애니메이션 변수
   private swingProgress: number = 0; // 0 ~ 1
@@ -83,7 +85,8 @@ export class PlayerViewModel {
     isMining: boolean,
     currentTool: ToolType,
     currentBlock: BlockType,
-    isModalOpen: boolean
+    isModalOpen: boolean,
+    currentItemType?: string
   ): void {
     // 모달창이 열려있으면 팔 뷰모델 숨김
     if (isModalOpen) {
@@ -92,9 +95,10 @@ export class PlayerViewModel {
     }
     this.root.visible = true;
 
-    // 1. 도구 또는 손에 든 블록이 변경되었는지 검사하여 3D 모델 교체
-    if (currentTool !== this.lastTool || currentBlock !== this.lastBlock) {
-      this.updateHeldItem(currentTool, currentBlock);
+    // 1. 도구 또는 손에 든 블록/아이템이 변경되었는지 검사하여 3D 모델 교체
+    const itemKey = currentItemType || null;
+    if (currentTool !== this.lastTool || currentBlock !== this.lastBlock || itemKey !== this.lastItem) {
+      this.updateHeldItem(currentTool, currentBlock, itemKey);
     }
 
     // 2. 스윙 (휘두르기 / 휘적임) 애니메이션 계산
@@ -148,11 +152,12 @@ export class PlayerViewModel {
   }
 
   /**
-   * 손에 든 도구 또는 블록 3D 모델 업데이트
+   * 손에 든 도구, 블록 또는 아이템 3D 모델 업데이트
    */
-  private updateHeldItem(tool: ToolType, block: BlockType): void {
+  private updateHeldItem(tool: ToolType, block: BlockType, itemType: string | null): void {
     this.lastTool = tool;
     this.lastBlock = block;
+    this.lastItem = itemType;
 
     // 기존 장착물 제거
     if (this.currentToolMesh) {
@@ -162,6 +167,10 @@ export class PlayerViewModel {
     if (this.currentBlockMesh) {
       this.itemHolder.remove(this.currentBlockMesh);
       this.currentBlockMesh = null;
+    }
+    if (this.currentItemMesh) {
+      this.itemHolder.remove(this.currentItemMesh);
+      this.currentItemMesh = null;
     }
 
     // 1. 도구를 들고 있는 경우 (곡괭이, 도끼, 삽)
@@ -178,7 +187,24 @@ export class PlayerViewModel {
       return;
     }
 
-    // 3. 맨손일 경우: 아무것도 추가하지 않음 (맨손 팔만 노출되어 휘적임)
+    // 3. 아이템을 들고 있는 경우 (바가지, 막대기 등)
+    if (itemType === 'BOWL_EMPTY') {
+      this.currentItemMesh = this.createBowlModel(false);
+      this.itemHolder.add(this.currentItemMesh);
+      return;
+    }
+    if (itemType === 'BOWL_WATER') {
+      this.currentItemMesh = this.createBowlModel(true);
+      this.itemHolder.add(this.currentItemMesh);
+      return;
+    }
+    if (itemType === 'STICK') {
+      this.currentItemMesh = this.createStickModel();
+      this.itemHolder.add(this.currentItemMesh);
+      return;
+    }
+
+    // 4. 맨손일 경우: 아무것도 추가하지 않음 (맨손 팔만 노출되어 휘적임)
   }
 
   /**
@@ -277,5 +303,59 @@ export class PlayerViewModel {
     mesh.position.set(0, 0.1, 0.08);
     mesh.rotation.set(0.2, 0.5, 0.1);
     return mesh;
+  }
+
+  /**
+   * [요구사항 12]: 나무 바가지 3D 모델 (물 포함 여부에 따라 푸른 물 그래픽 렌더링)
+   */
+  private createBowlModel(hasWater: boolean): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(0.04, 0.08, 0.1);
+    group.rotation.set(0.2, 0.4, 0.1);
+
+    // 1. 바가지 외형 (갈색 원목 그릇 형태)
+    const bowlMat = new THREE.MeshLambertMaterial({ color: 0x92400e });
+    const bowlGeo = new THREE.BoxGeometry(0.18, 0.09, 0.18);
+    const bowlMesh = new THREE.Mesh(bowlGeo, bowlMat);
+    group.add(bowlMesh);
+
+    // 2. 바가지 내부 음영 바닥
+    const innerMat = new THREE.MeshLambertMaterial({ color: 0x78350f });
+    const innerGeo = new THREE.BoxGeometry(0.15, 0.02, 0.15);
+    const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+    innerMesh.position.set(0, 0.04, 0);
+    group.add(innerMesh);
+
+    // 3. 물이 담겨있을 때의 물 그래픽 (푸른 반투명 물 표면)
+    if (hasWater) {
+      const waterMat = new THREE.MeshStandardMaterial({
+        color: 0x2563eb,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.1,
+        metalness: 0.2,
+      });
+      const waterGeo = new THREE.BoxGeometry(0.145, 0.02, 0.145);
+      const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+      waterMesh.position.set(0, 0.048, 0);
+      group.add(waterMesh);
+    }
+
+    return group;
+  }
+
+  /**
+   * 막대기 3D 모델
+   */
+  private createStickModel(): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(0.04, 0.14, 0.1);
+    group.rotation.set(-0.3, 0.2, -0.4);
+
+    const stickMat = new THREE.MeshLambertMaterial({ color: 0x78350f });
+    const stickGeo = new THREE.BoxGeometry(0.035, 0.38, 0.035);
+    const stickMesh = new THREE.Mesh(stickGeo, stickMat);
+    group.add(stickMesh);
+    return group;
   }
 }

@@ -9,7 +9,7 @@ export interface InventorySlot {
   blockType?: BlockType;
 
   isItem?: boolean;
-  itemType?: 'STICK' | 'RETURN_STONE';
+  itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER';
   itemName?: string;
   itemEmoji?: string;
 
@@ -94,8 +94,8 @@ export class HotbarUI {
   /**
    * 여유 공간이 있는지 확인 (스택 가능하거나 빈 슬롯이 있으면 true)
    */
-  public hasSpaceFor(type: BlockType | 'STICK' | 'RETURN_STONE', amount: number = 1): boolean {
-    if (type === 'STICK' || type === 'RETURN_STONE') {
+  public hasSpaceFor(type: BlockType | 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER', amount: number = 1): boolean {
+    if (typeof type === 'string') {
       const existing = this.slots.find(s => s.isItem && s.itemType === type && s.count + amount <= 64);
       if (existing) return true;
     } else {
@@ -171,7 +171,7 @@ export class HotbarUI {
     return false;
   }
 
-  public addItem(itemType: 'STICK' | 'RETURN_STONE', amount: number = 1): boolean {
+  public addItem(itemType: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER', amount: number = 1): boolean {
     let slot = this.slots.find(s => s.isItem && s.itemType === itemType && s.count < 64);
     if (!slot) {
       slot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
@@ -179,8 +179,19 @@ export class HotbarUI {
         slot.isTool = false;
         slot.isItem = true;
         slot.itemType = itemType;
-        slot.itemName = itemType === 'STICK' ? '막대기' : '마을 귀환석';
-        slot.itemEmoji = itemType === 'STICK' ? '🥢' : '🧭';
+        if (itemType === 'STICK') {
+          slot.itemName = '막대기';
+          slot.itemEmoji = '🥢';
+        } else if (itemType === 'RETURN_STONE') {
+          slot.itemName = '마을 귀환석';
+          slot.itemEmoji = '🧭';
+        } else if (itemType === 'BOWL_EMPTY') {
+          slot.itemName = '나무 바가지';
+          slot.itemEmoji = '🥣';
+        } else if (itemType === 'BOWL_WATER') {
+          slot.itemName = '물 담긴 바가지';
+          slot.itemEmoji = '🥣💧';
+        }
         slot.count = 0;
       }
     }
@@ -190,6 +201,27 @@ export class HotbarUI {
       return true;
     }
     return false; // 인벤토리 꽉 참
+  }
+
+  /**
+   * 바가지 변환: 빈 바가지 <-> 물 담긴 바가지 상호 전환
+   */
+  public swapSelectedBowl(toType: 'BOWL_EMPTY' | 'BOWL_WATER'): boolean {
+    const slot = this.getSelectedSlot();
+    if (!slot || !slot.isItem) return false;
+    slot.itemType = toType;
+    if (toType === 'BOWL_EMPTY') {
+      slot.itemName = '나무 바가지';
+      slot.itemEmoji = '🥣';
+    } else {
+      slot.itemName = '물 담긴 바가지';
+      slot.itemEmoji = '🥣💧';
+    }
+    this.render();
+    if (this.onSelectChange) {
+      this.onSelectChange(slot);
+    }
+    return true;
   }
 
   public consumeItem(itemType: 'STICK', amount: number = 1): boolean {

@@ -35,6 +35,7 @@ export interface PlayerNetworkData {
   rotY: number;
   currentWorld: WorldType;
   isFlying: boolean;
+  isCrouching?: boolean;
   lastActive: number;
 }
 
@@ -247,13 +248,20 @@ export class NetworkManager {
    * [교사용] 교사가 생성했던 마을 목록 불러오기
    */
   public async getTeacherRooms(teacherName: string, teacherPin: string = ''): Promise<Array<{ roomCode: string; roomName: string; createdAt: number }>> {
-    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
-    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    // 1. Firebase rules 인증(auth != null) 필수 충족
+    try {
+      await this.loginAnonymously();
+    } catch (e) {
+      console.warn('loginAnonymously before getTeacherRooms error:', e);
+    }
+
+    const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
+    const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
     const teacherKey = `${cleanTeacher}_${cleanPin}`;
 
     const roomsMap = new Map<string, { roomCode: string; roomName: string; createdAt: number }>();
 
-    // 1. Firebase 조회
+    // 2. Firebase 실시간 데이터베이스 서버 조회 (우선 순위 1위)
     try {
       const snap = await get(ref(this.db, `teachers/${teacherKey}/rooms`));
       if (snap.exists()) {
@@ -266,7 +274,7 @@ export class NetworkManager {
       console.warn('Firebase teacher rooms read error:', e);
     }
 
-    // 2. 로컬스토리지 백업 데이터 조회 및 병합
+    // 3. 로컬스토리지 백업 데이터 조회 및 서버에 미등록된 항목이 있다면 보완 병합
     try {
       const localData = localStorage.getItem(`teacher_rooms_${teacherKey}`);
       if (localData) {
@@ -274,6 +282,8 @@ export class NetworkManager {
         for (const item of parsed) {
           if (!roomsMap.has(item.roomCode)) {
             roomsMap.set(item.roomCode, item);
+            // Firebase 서버에도 자동으로 복구 저장 동기화
+            update(ref(this.db, `teachers/${teacherKey}/rooms/${item.roomCode}`), item).catch(() => {});
           }
         }
       }
@@ -286,8 +296,12 @@ export class NetworkManager {
    * [교사용] 마을 영구 삭제
    */
   public async deleteTeacherRoom(roomCode: string, teacherName: string, teacherPin: string = ''): Promise<boolean> {
-    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
-    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    try {
+      await this.loginAnonymously();
+    } catch (e) {}
+
+    const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
+    const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
     const teacherKey = `${cleanTeacher}_${cleanPin}`;
 
     try {
@@ -315,8 +329,12 @@ export class NetworkManager {
    * 교사 보관함에 방 정보 저장 (Firebase & LocalStorage)
    */
   private async saveTeacherRoomRecord(roomCode: string, roomName: string, teacherName: string, teacherPin: string): Promise<void> {
-    const cleanTeacher = (teacherName.trim() || '선생님').replace(/[.#$\[\]\/]/g, '_');
-    const cleanPin = (teacherPin.trim() || 'default').replace(/[.#$\[\]\/]/g, '_');
+    try {
+      await this.loginAnonymously();
+    } catch (e) {}
+
+    const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
+    const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
     const teacherKey = `${cleanTeacher}_${cleanPin}`;
 
     const record = {
@@ -463,12 +481,17 @@ export class NetworkManager {
       console.warn('joinRequests read error:', e);
     }
 
-    // 기존에 배정받은 적이 있는 학생(이름 또는 UID 기준)이면 기존 대지 복원
+    const trimmedName = applicantName.trim();
+    const safeName = trimmedName ? encodeURIComponent(trimmedName).replace(/\./g, '_') : '';
+
+    // [요구사항 10]: 기존에 동일한 이름으로 접속했던 기록이 있으면 100% 동일한 대지 번호로 복원
     let assignedPlot: number | null = null;
-    if (assignedPlotsMap[applicantUid]) {
+    if (safeName && assignedPlotsMap[safeName]) {
+      assignedPlot = assignedPlotsMap[safeName];
+    } else if (trimmedName && assignedPlotsMap[trimmedName]) {
+      assignedPlot = assignedPlotsMap[trimmedName];
+    } else if (applicantUid && assignedPlotsMap[applicantUid]) {
       assignedPlot = assignedPlotsMap[applicantUid];
-    } else if (applicantName && assignedPlotsMap[applicantName]) {
-      assignedPlot = assignedPlotsMap[applicantName];
     }
 
     // 2. 신규 배정 필요한 경우 (사용 중인 대지 종합 수집)
@@ -503,17 +526,20 @@ export class NetworkManager {
       }
     }
 
-    // 영구 배정 기록 저장 시도 (보안 규칙 미적용 상태여도 승인 자체는 반드시 성공하도록 try-catch)
+    // 영구 배정 기록 저장 (UID와 안전하게 인코딩된 이름 모두 기록하여 다음 로그인 시 동일 배정 보장)
     try {
       const updates: Record<string, any> = {
         [applicantUid]: assignedPlot
       };
-      if (applicantName) {
-        updates[applicantName] = assignedPlot;
+      if (safeName) {
+        updates[safeName] = assignedPlot;
+      }
+      if (trimmedName && !/[.#$\[\]\/]/.test(trimmedName)) {
+        updates[trimmedName] = assignedPlot;
       }
       await update(assignedPlotsRef, updates);
     } catch (e) {
-      console.warn('assignedPlots update skipped (rules not updated):', e);
+      console.warn('assignedPlots update skipped:', e);
     }
 
     // 승인 상태 전송 (가장 핵심: 학생 화면이 바로 입장되도록 전송)
@@ -851,7 +877,7 @@ export class NetworkManager {
   /**
    * 내 위치와 회전각 실시간 전송 (100ms 쓰로틀링)
    */
-  public updateMyPosition(x: number, y: number, z: number, rotY: number, currentWorld: WorldType, isFlying: boolean): void {
+  public updateMyPosition(x: number, y: number, z: number, rotY: number, currentWorld: WorldType, isFlying: boolean, isCrouching: boolean = false): void {
     if (!this.roomCode || !this.currentUser) return;
 
     const now = performance.now();
@@ -866,6 +892,7 @@ export class NetworkManager {
       rotY: Number(rotY.toFixed(2)),
       currentWorld,
       isFlying,
+      isCrouching,
       lastActive: Date.now()
     }).catch(() => {});
   }
@@ -902,8 +929,15 @@ export class NetworkManager {
 
     remote.data = data;
     // [지시사항 1]: 실시간 위치 보간 시에도 발바닥이 블록 표면에 완벽 밀착되도록 y - 1.8 적용
-    remote.targetPos.set(data.x, data.y - 1.8, data.z);
+    remote.targetPos.set(data.x, data.y - (data.isCrouching ? 1.35 : 1.8), data.z);
     remote.targetRotY = data.rotY;
+
+    // [요구사항 9]: 앉아있을 때 아바타 높이 스케일 축소
+    if (data.isCrouching) {
+      remote.mesh.scale.set(1.0, 0.75, 1.0);
+    } else {
+      remote.mesh.scale.set(1.0, 1.0, 1.0);
+    }
 
     // 다른 월드에 있으면 보이지 않게 처리
     remote.mesh.visible = true;

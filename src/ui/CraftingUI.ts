@@ -3,7 +3,7 @@ import { HotbarUI } from './Hotbar.ts';
 
 export type CraftItemType =
   | { kind: 'block'; type: BlockType }
-  | { kind: 'item'; type: 'STICK' }
+  | { kind: 'item'; type: 'STICK' | 'BOWL_EMPTY' | 'BOWL_WATER' }
   | { kind: 'tool'; type: ToolType };
 
 export interface Recipe {
@@ -21,7 +21,7 @@ export interface Recipe {
   result: {
     type: 'block' | 'item' | 'tool';
     blockType?: BlockType;
-    itemType?: 'STICK';
+    itemType?: 'STICK' | 'BOWL_EMPTY' | 'BOWL_WATER';
     toolType?: ToolType;
     count: number;
     name: string;
@@ -85,6 +85,34 @@ export const RECIPES: Recipe[] = [
     ],
     cost: { plank: 8 },
     result: { type: 'block', blockType: BlockType.CHEST, count: 1, name: '보관 상자', emoji: '📦' }
+  },
+  // 3-2. [요구사항 4]: 나무 계단 (가공목재 6개 -> 나무 계단 4개)
+  {
+    id: 'wood_stair',
+    name: '나무 계단 (4개)',
+    emoji: '🪜',
+    description: '가공 목재 6개로 층계를 오르내릴 수 있는 건축용 계단 4개 제작',
+    grid: [
+      'PLANK', null, null,
+      'PLANK', 'PLANK', null,
+      'PLANK', 'PLANK', 'PLANK'
+    ],
+    cost: { plank: 6 },
+    result: { type: 'block', blockType: BlockType.WOOD_STAIR, count: 4, name: '나무 계단', emoji: '🪜' }
+  },
+  // 3-3. [요구사항 12]: 나무 바가지 (가공목재 3개 -> 물을 퍼올릴 수 있는 바가지 1개)
+  {
+    id: 'wooden_bowl',
+    name: '나무 바가지',
+    emoji: '🥣',
+    description: '가공 목재 3개 제작 | 물을 퍼올리고 원하는 위치에 물 블록을 생성',
+    grid: [
+      'PLANK', null, 'PLANK',
+      null, 'PLANK', null,
+      null, null, null
+    ],
+    cost: { plank: 3 },
+    result: { type: 'item', itemType: 'BOWL_EMPTY', count: 1, name: '나무 바가지', emoji: '🥣' }
   },
   // 4. 나무 곡괭이 (목재 3 + 막대기 2)
   {
@@ -184,7 +212,7 @@ export class CraftingUI {
   public isOpen: boolean = false;
   public onCraftSuccess?: (msg: string) => void;
   public onClose?: () => void;
-  public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK'; toolType?: ToolType; count: number }) => void;
+  public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER'; toolType?: ToolType; count: number }) => void;
 
   constructor(hotbar: HotbarUI) {
     this.hotbar = hotbar;

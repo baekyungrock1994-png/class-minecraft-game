@@ -7,7 +7,7 @@ export interface DropItemData {
   type: 'block' | 'item' | 'tool';
   worldType: WorldType;
   blockType?: BlockType;
-  itemType?: 'STICK' | 'RETURN_STONE';
+  itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER';
   toolType?: ToolType;
   count: number;
 }
@@ -80,6 +80,10 @@ export class FloatingItemEntity {
         color = 0x92400e;
       } else if (data.itemType === 'RETURN_STONE') {
         color = 0x10b981;
+      } else if (data.itemType === 'BOWL_EMPTY') {
+        color = 0xb45309;
+      } else if (data.itemType === 'BOWL_WATER') {
+        color = 0x0284c7;
       }
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(geo, mat);
@@ -174,6 +178,8 @@ export class ItemDropManager {
           canTake = hotbar.hasSpaceFor('STICK', item.data.count);
         } else if (item.data.type === 'item' && item.data.itemType === 'RETURN_STONE') {
           canTake = hotbar.hasSpaceFor('RETURN_STONE', item.data.count);
+        } else if (item.data.type === 'item' && (item.data.itemType === 'BOWL_EMPTY' || item.data.itemType === 'BOWL_WATER')) {
+          canTake = hotbar.hasSpaceFor(item.data.itemType, item.data.count);
         } else if (item.data.type === 'tool' && item.data.toolType) {
           canTake = hotbar.slots.some(s => s.count === 0 && !s.isTool && !s.isItem);
         }
@@ -202,6 +208,10 @@ export class ItemDropManager {
               success = hotbar.addItem('RETURN_STONE', item.data.count);
               itemName = '마을 귀환석';
               emoji = '🧭';
+            } else if (item.data.type === 'item' && (item.data.itemType === 'BOWL_EMPTY' || item.data.itemType === 'BOWL_WATER')) {
+              success = hotbar.addItem(item.data.itemType, item.data.count);
+              itemName = item.data.itemType === 'BOWL_EMPTY' ? '빈 바가지' : '물 바가지';
+              emoji = item.data.itemType === 'BOWL_EMPTY' ? '🥣' : '🌊';
             } else if (item.data.type === 'tool' && item.data.toolType) {
               success = hotbar.addTool(item.data.toolType);
               const meta = TOOL_METAS[item.data.toolType];

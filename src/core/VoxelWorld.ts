@@ -119,6 +119,8 @@ export class VoxelWorld {
   private resourceChunkMeshes: Map<string, THREE.Mesh> = new Map();
   private resourceChunkGroup: THREE.Group = new THREE.Group();
 
+  public plotSignsGroup: THREE.Group = new THREE.Group();
+
   private sharedMaterial: THREE.MeshLambertMaterial;
 
   // 자연 웅덩이/호수 전용 수면 메시와 대재앙 홍수 메시 분리 (산/지하 관통 방지)
@@ -155,6 +157,7 @@ export class VoxelWorld {
     });
     this.scene.add(this.townChunkGroup);
     this.scene.add(this.resourceChunkGroup);
+    this.scene.add(this.plotSignsGroup);
 
     const waterMaterial = new THREE.MeshStandardMaterial({
       color: 0x3b82f6,
@@ -345,6 +348,100 @@ export class VoxelWorld {
 
         id++;
       }
+    }
+
+    this.createPlotSigns();
+  }
+
+  /**
+   * [요구사항 1]: 각 구역(대지 #1 ~ #16) 입구에 3D 번호 표지판 생성
+   */
+  public createPlotSigns(): void {
+    // 기존 표지판 청소
+    while (this.plotSignsGroup.children.length > 0) {
+      this.plotSignsGroup.remove(this.plotSignsGroup.children[0]);
+    }
+
+    const poleGeo = new THREE.BoxGeometry(0.16, 1.4, 0.16);
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x675232 });
+
+    for (const plot of this.plots) {
+      const signGroup = new THREE.Group();
+
+      // 1. 나무 지지 기둥 (높이 1.4, 바닥 Y=4.0 기준 중심 Y=4.7)
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(0, 0.7, 0);
+      signGroup.add(pole);
+
+      // 2. 고화질 픽셀 캔버스 텍스처 (번호 표지판)
+      const canvas = document.createElement('canvas');
+      canvas.width = 300;
+      canvas.height = 150;
+      const ctx = canvas.getContext('2d')!;
+
+      // 캔버스 배경 (고급 원목 판자 질감)
+      ctx.fillStyle = '#674627';
+      ctx.fillRect(0, 0, 300, 150);
+
+      // 나뭇결 질감
+      ctx.fillStyle = '#55371c';
+      ctx.fillRect(8, 12, 284, 4);
+      ctx.fillRect(8, 70, 284, 3);
+      ctx.fillRect(8, 130, 284, 4);
+
+      // 선명한 황금빛 테두리
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(4, 4, 292, 142);
+
+      // 내부 얇은 하이라이트 테두리
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, 280, 130);
+
+      // 네 모서리 철 못/리벳
+      ctx.fillStyle = '#d4d4d8';
+      ctx.beginPath();
+      ctx.arc(16, 16, 4, 0, Math.PI * 2);
+      ctx.arc(284, 16, 4, 0, Math.PI * 2);
+      ctx.arc(16, 134, 4, 0, Math.PI * 2);
+      ctx.arc(284, 134, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 메인 텍스트: "구역 #X"
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#000000';
+      ctx.font = '900 48px sans-serif';
+      ctx.fillText(`📍 구역 #${plot.id}`, 152, 58);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`📍 구역 #${plot.id}`, 150, 56);
+
+      // 서브 텍스트: "내 건축 대지"
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillStyle = '#000000';
+      ctx.fillText(`[ 대지 #${plot.id} 번호 ]`, 151, 107);
+      ctx.fillStyle = '#fde047';
+      ctx.fillText(`[ 대지 #${plot.id} 번호 ]`, 150, 106);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+
+      const spriteMat = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: true,
+      });
+
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(2.4, 1.2, 1.0);
+      sprite.position.set(0, 1.6, 0);
+      signGroup.add(sprite);
+
+      // 대지의 전면 도로 접면 모서리 (minX + 0.5, Y=4, minZ - 0.5)
+      signGroup.position.set(plot.minX + 0.5, 4.0, plot.minZ - 0.5);
+      this.plotSignsGroup.add(signGroup);
     }
   }
 
@@ -751,6 +848,29 @@ export class VoxelWorld {
     chosenTrees.forEach((spot, idx) => {
       this.spawnTreeInResource(spot.x, spot.y, spot.z, idx + 1);
     });
+
+    // [요구사항 3]: 철 블록 업데이트 (자원 맵에 총 100개 블록만 존재하도록 설정)
+    const stoneSpots: Array<{ x: number; y: number; z: number }> = [];
+    for (const [key, type] of this.resourceBlocks.entries()) {
+      if (type === BlockType.STONE) {
+        const [sx, sy, sz] = key.split(',').map(Number);
+        // 기반암(y=0, 1) 및 복귀 제단(x: -4~4, z: -8~1)은 제외하고 일반 암석 중 선별
+        if (sy > 1 && !(Math.abs(sx) <= 4 && sz >= -8 && sz <= 1)) {
+          stoneSpots.push({ x: sx, y: sy, z: sz });
+        }
+      }
+    }
+    // 결정론적 해시로 자연스럽게 분산 정렬
+    stoneSpots.sort((a, b) => {
+      const ha = Math.sin(a.x * 12.9898 + a.y * 78.233 + a.z * 37.719) * 43758.5453;
+      const hb = Math.sin(b.x * 12.9898 + b.y * 78.233 + b.z * 37.719) * 43758.5453;
+      return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
+    });
+    const ironCount = Math.min(100, stoneSpots.length);
+    for (let i = 0; i < ironCount; i++) {
+      const sp = stoneSpots[i];
+      this.resourceBlocks.set(this.getKey(sp.x, sp.y, sp.z), BlockType.IRON_BLOCK);
+    }
   }
 
   private spawnTreeInResource(rootX: number, rootY: number, rootZ: number, treeId: number = 0): void {
@@ -883,11 +1003,13 @@ export class VoxelWorld {
       this.resourceChunkGroup.visible = false;
       this.resourceWaterMesh.visible = false;
       this.disasterWaterMesh.visible = this.isDisasterActive;
+      this.plotSignsGroup.visible = true;
     } else {
       this.townChunkGroup.visible = false;
       this.resourceChunkGroup.visible = true;
       this.resourceWaterMesh.visible = true;
       this.disasterWaterMesh.visible = false;
+      this.plotSignsGroup.visible = false;
     }
   }
 

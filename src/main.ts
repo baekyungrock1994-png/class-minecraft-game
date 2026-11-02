@@ -7,8 +7,6 @@ import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS }
 import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData } from './core/NetworkManager.ts';
 import { ItemDropManager } from './game/ItemDropManager.ts';
 import { ChestManager } from './game/ChestManager.ts';
-import { BattleManager, BattleSession, BattleBetItem } from './game/BattleManager.ts';
-
 class GameApp {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -23,7 +21,6 @@ class GameApp {
   public networkManager: NetworkManager;
   public itemDropManager: ItemDropManager;
   public chestManager: ChestManager;
-  public battleManager: BattleManager;
 
   // 상자(보관함) 모달 요소
   private chestModal: HTMLElement;
@@ -31,36 +28,9 @@ class GameApp {
   private chestHotbarGrid: HTMLElement;
   private btnCloseChest: HTMLElement;
 
-  // 투기장 배틀 관련 UI 요소
-  private btnOpenArenaBattle: HTMLElement;
-  private battleRequestModal: HTMLElement;
-  private btnCloseBattleRequest: HTMLElement;
-  private battleTargetSelect: HTMLSelectElement;
-  private battleBetItemSelect: HTMLSelectElement;
-  private battleBetCountInput: HTMLInputElement;
-  private btnSubmitBattleRequest: HTMLElement;
-
-  private battleIncomingToast: HTMLElement;
-  private battleToastMsg: HTMLElement;
-  private battleToastDetail: HTMLElement;
-  private btnBattleAccept: HTMLElement;
-  private btnBattleReject: HTMLElement;
-
-  private battleTeacherModal: HTMLElement;
-  private btnCloseTeacherBattle: HTMLElement;
-  private vsPlayer1Name: HTMLElement;
-  private vsPlayer2Name: HTMLElement;
-  private teacherBattleBetInfo: HTMLElement;
-  private btnTeacherApproveBattle: HTMLElement;
-  private btnTeacherCancelBattle: HTMLElement;
-
-  private battleHud: HTMLElement;
-  private fighter1NameHud: HTMLElement;
-  private fighter1HpFill: HTMLElement;
-  private fighter1HpText: HTMLElement;
-  private fighter2NameHud: HTMLElement;
-  private fighter2HpFill: HTMLElement;
-  private fighter2HpText: HTMLElement;
+  // 채팅 쿨다운 (5초) 및 대재앙 평화모드 오버라이드
+  private lastChatSendTime: number = 0;
+  private isDeforestationFloodOverridden: boolean = false;
 
   private clock: THREE.Clock = new THREE.Clock();
   private startModal: HTMLElement;
@@ -206,37 +176,6 @@ class GameApp {
     this.chestHotbarGrid = document.getElementById('chest-hotbar-grid')!;
     this.btnCloseChest = document.getElementById('btn-close-chest')!;
 
-    // 투기장 배틀 관련 요소
-    this.btnOpenArenaBattle = document.getElementById('btn-open-arena-battle')!;
-    this.battleRequestModal = document.getElementById('battle-request-modal')!;
-    this.btnCloseBattleRequest = document.getElementById('btn-close-battle-request')!;
-    this.battleTargetSelect = document.getElementById('battle-target-select') as HTMLSelectElement;
-    this.battleBetItemSelect = document.getElementById('battle-bet-item-select') as HTMLSelectElement;
-    this.battleBetCountInput = document.getElementById('battle-bet-count-input') as HTMLInputElement;
-    this.btnSubmitBattleRequest = document.getElementById('btn-submit-battle-request')!;
-
-    this.battleIncomingToast = document.getElementById('battle-incoming-toast')!;
-    this.battleToastMsg = document.getElementById('battle-toast-msg')!;
-    this.battleToastDetail = document.getElementById('battle-toast-detail')!;
-    this.btnBattleAccept = document.getElementById('btn-battle-accept')!;
-    this.btnBattleReject = document.getElementById('btn-battle-reject')!;
-
-    this.battleTeacherModal = document.getElementById('battle-teacher-modal')!;
-    this.btnCloseTeacherBattle = document.getElementById('btn-close-teacher-battle')!;
-    this.vsPlayer1Name = document.getElementById('vs-player1-name')!;
-    this.vsPlayer2Name = document.getElementById('vs-player2-name')!;
-    this.teacherBattleBetInfo = document.getElementById('teacher-battle-bet-info')!;
-    this.btnTeacherApproveBattle = document.getElementById('btn-teacher-approve-battle')!;
-    this.btnTeacherCancelBattle = document.getElementById('btn-teacher-cancel-battle')!;
-
-    this.battleHud = document.getElementById('battle-hud')!;
-    this.fighter1NameHud = document.getElementById('fighter1-name-hud')!;
-    this.fighter1HpFill = document.getElementById('fighter1-hp-fill')!;
-    this.fighter1HpText = document.getElementById('fighter1-hp-text')!;
-    this.fighter2NameHud = document.getElementById('fighter2-name-hud')!;
-    this.fighter2HpFill = document.getElementById('fighter2-hp-fill')!;
-    this.fighter2HpText = document.getElementById('fighter2-hp-text')!;
-
     // 1. Three.js 기본 씬 & 카메라
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87ceeb); // 맑은 하늘색
@@ -311,9 +250,6 @@ class GameApp {
       this.openChestModal(chestKey);
     };
 
-    // 5-3. 외곽 배틀 투기장 매니저
-    this.battleManager = new BattleManager();
-
     // [요청 2]: 'Q' 키를 눌러 손에 든 아이템 1개 (Ctrl/Shift+Q는 전체) 버리기
     this.player.onDropItem = (all: boolean) => {
       const dropped = this.hotbar.dropSelectedItem(all);
@@ -346,8 +282,19 @@ class GameApp {
           count: dropped.count
         }, spawnX, spawnY, spawnZ, 2.0);
       } else if (dropped.itemType) {
-        name = dropped.itemType === 'STICK' ? '막대기' : '마을 귀환석';
-        emoji = dropped.itemType === 'STICK' ? '🥢' : '🧭';
+        if (dropped.itemType === 'STICK') {
+          name = '막대기';
+          emoji = '🥢';
+        } else if (dropped.itemType === 'RETURN_STONE') {
+          name = '마을 귀환석';
+          emoji = '🧭';
+        } else if (dropped.itemType === 'BOWL_EMPTY') {
+          name = '빈 바가지';
+          emoji = '🥣';
+        } else if (dropped.itemType === 'BOWL_WATER') {
+          name = '물 바가지';
+          emoji = '🌊';
+        }
         this.itemDropManager.spawnDropItem({
           type: 'item',
           worldType: this.world.currentWorldType,
@@ -360,25 +307,52 @@ class GameApp {
       this.showNotification(`🗑️ [아이템 버림] ${name} ${dropped.count}개를 바닥에 버렸습니다.`, emoji);
     };
 
-    // [요청 3]: 투기장 배틀 중 좌클릭 상대방 타격 공격
-    this.player.onAttackPlayer = () => {
-      if (!this.battleManager.currentSession || this.battleManager.currentSession.status !== 'in_progress') return;
-      if (!this.world.isArenaZone(this.player.position.x, this.player.position.z)) return;
+    // 물 퍼올리기 / 물 붓기 바가지 인터랙션
+    this.player.onBowlInteract = (action: 'scoop' | 'pour', x: number, y: number, z: number): boolean => {
+      const isTeacher = (this.networkManager && this.networkManager.role === 'teacher') || this.player.bypassPlotRestriction;
+      const isResourceWorld = this.world.currentWorldType === 'resource';
 
-      const s = this.battleManager.currentSession;
-      const opponentUid = s.challengerUid === this.battleManager.myUid ? s.targetUid : s.challengerUid;
+      if (action === 'scoop') {
+        const curBlock = this.world.getBlock(x, y, z);
+        if (curBlock !== BlockType.WATER) return false;
 
-      // 상대 플레이어와의 거리 검사
-      const opponentRemote = this.networkManager.getRemotePlayer(opponentUid);
-      if (opponentRemote) {
-        const dist = this.player.position.distanceTo(opponentRemote.mesh.position);
-        if (dist <= 3.8) {
-          // 데미지 계산: 도구 장착 시 20, 맨손 12
-          const dmg = this.player.currentTool !== ToolType.NONE ? 20 : 12;
-          this.battleManager.applyAttackDamage(opponentUid, dmg, this.hotbar);
-          this.showNotification(`💥 상대를 타격했습니다! (-${dmg} HP)`, '⚔️');
+        // 물 블록 퍼올리기 (물 제거 및 공기로 변경)
+        this.world.setBlock(x, y, z, BlockType.AIR);
+        this.networkManager.sendBlockDelta(this.world.currentWorldType, x, y, z, BlockType.AIR);
+        this.hotbar.swapSelectedBowl('BOWL_WATER');
+        this.player.currentSelectedItemType = 'BOWL_WATER';
+        this.updatePlayerSelectedItem();
+        this.showNotification('🌊 바가지로 물을 한가득 퍼올렸습니다!', '🥣');
+        return true;
+      } else if (action === 'pour') {
+        // 물 붓기
+        if (this.world.isProtectedBlock(x, y, z)) {
+          this.showNotification('✨ 신성한 구역에는 물을 부을 수 없습니다!', '🔒');
+          return false;
         }
+
+        // 평지 마을에서는 대지 권한 검사 (자원 구역은 자유롭게 설치 가능)
+        if (!isResourceWorld && !isTeacher) {
+          const plot = this.world.getPlotAt(x, z);
+          if (!plot) {
+            this.showNotification(`🚫 마을 공용 도로에는 물을 쏟을 수 없습니다! 내 대지(#${this.player.assignedPlotIndex}) 안에서 사용하세요.`, '🛡️');
+            return false;
+          }
+          if (plot.id !== this.player.assignedPlotIndex) {
+            this.showNotification(`🚫 다른 친구의 대지(#${plot.id})에는 물을 쏟을 수 없습니다!`, '🛡️');
+            return false;
+          }
+        }
+
+        this.world.setBlock(x, y, z, BlockType.WATER);
+        this.networkManager.sendBlockDelta(this.world.currentWorldType, x, y, z, BlockType.WATER);
+        this.hotbar.swapSelectedBowl('BOWL_EMPTY');
+        this.player.currentSelectedItemType = 'BOWL_EMPTY';
+        this.updatePlayerSelectedItem();
+        this.showNotification('💧 원하는 곳에 물을 시원하게 부었습니다!', '🌊');
+        return true;
       }
+      return false;
     };
 
     // 블록 인터랙션 (채굴 / 설치) 규칙 연결
@@ -446,7 +420,23 @@ class GameApp {
     this.setupPlayerListModal();
     this.setupQuickChatModal();
     this.setupChestModal();
-    this.setupBattleUI();
+
+    // 내 대지 귀환 버튼 클릭 바인딩
+    const btnGotoMyPlot = document.getElementById('btn-goto-my-plot');
+    if (btnGotoMyPlot) {
+      btnGotoMyPlot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.world.currentWorldType === 'resource') {
+          this.switchWorld('town');
+          this.showNotification(`🏡 평지 마을(내 대지 #${this.player.assignedPlotIndex}번)로 귀환했습니다!`, '✨');
+        } else {
+          this.teleportToMyPlot();
+          this.showNotification(`📍 내 대지(#${this.player.assignedPlotIndex}번) 중심으로 이동했습니다!`, '🏡');
+        }
+        this.requestPointerLockSafely();
+      });
+    }
+
     this.initRainSystem();
     this.setupCardNewsModal();
     this.updateTreeCountUI();
@@ -461,6 +451,7 @@ class GameApp {
 
   private updatePlayerSelectedItem(): void {
     const slot = this.hotbar.getSelectedSlot();
+    this.player.currentSelectedItemType = slot.isItem ? slot.itemType : undefined;
     if (slot.isTool) {
       this.player.currentTool = this.hotbar.getSelectedTool();
       this.player.currentSelectedBlock = BlockType.AIR; // 도구 들고 있을 땐 건축 불가
@@ -495,13 +486,9 @@ class GameApp {
 
     // 1. 채굴 / 파괴 동작 (break)
     if (event.action === 'break') {
-      // 0) 신성한 차원문 제단 및 바닥 기반암, 외곽 투기장 파괴 원천 차단
+      // 0) 신성한 차원문 제단 및 바닥 기반암 파괴 원천 차단
       if (this.world.isProtectedBlock(event.x, event.y, event.z)) {
-        if (this.world.isArenaZone(event.x, event.z)) {
-          this.showNotification('⚔️ 외곽 배틀 투기장은 그 어떤 방법으로도 훼손할 수 없습니다!', '🔒');
-        } else {
-          this.showNotification('✨ 신성한 차원문 제단과 바닥 기반암은 절대 파괴할 수 없습니다!', '🔒');
-        }
+        this.showNotification('✨ 신성한 차원문 제단과 바닥 기반암은 절대 파괴할 수 없습니다!', '🔒');
         return false;
       }
 
@@ -579,9 +566,9 @@ class GameApp {
       }
     } else if (event.action === 'place') {
       // 2. 건축 / 블록 설치 동작 (place)
-      // [요청 3]: 외곽 배틀 투기장 구역(Arena) 내 건축 원천 차단
-      if (this.world.isArenaZone(event.x, event.z) && !isTeacher) {
-        this.showNotification('🚫 배틀 투기장 구역에는 건축할 수 없습니다! 결투 전용 구역입니다.', '⚔️');
+      // 신성한 차원문 제단 등 보호 블록 영역 내 설치 차단
+      if (this.world.isProtectedBlock(event.x, event.y, event.z)) {
+        this.showNotification('✨ 신성한 차원문 제단과 보호 구역에는 건축할 수 없습니다!', '🔒');
         return false;
       }
 
@@ -595,12 +582,9 @@ class GameApp {
         }
       }
 
+      // 자원 채취 구역(개발도상국)에서도 제단 외 자유롭게 블록 설치 허용 (업데이트 요구사항)
       if (isResourceWorld) {
-        // [수정사항 2]: 자원 채취 구역(개발도상국)에서는 건축 절대 불가! (단, 관리자 예외)
-        if (!isTeacher) {
-          this.showNotification('🚫 자원 구역(개발도상국)에서는 집을 지을 수 없습니다! 채취만 가능합니다.', '⛏️');
-          return false;
-        }
+        // 허용됨
       }
 
       // 평지 주거 마을 (town)
@@ -977,6 +961,7 @@ class GameApp {
   }
 
   public applyDisasterLocally(): void {
+    this.isDeforestationFloodOverridden = false;
     this.isDisasterActive = true;
     this.world.isDisasterActive = true;
     this.targetWaterY = 6.8; // 평지 Y=4 위로 2.8블록 차오름 (집 1층 수몰)
@@ -1013,6 +998,7 @@ class GameApp {
     this.world.disasterWaterMesh.visible = false;
     this.world.clearMagmaEruption();
     this.isDeforestationFloodTriggered = false;
+    this.isDeforestationFloodOverridden = true; // 나무가 다 떨어져도 관리자 평화모드 설정 시 다시 홍수가 즉시 재발하지 않도록 오버라이드
     this.isRaining = false;
     if (this.rainParticles) this.rainParticles.visible = false;
 
@@ -1352,15 +1338,15 @@ class GameApp {
         this.toggleDevPanel();
       }
 
-      // [수정사항 2]: '[' 키를 누르면 평지 마을(내 대지)로 즉시 귀환!
-      if (e.code === 'BracketLeft' || e.key === '[') {
+      // [수정사항 2 & 요구사항]: 'H' 키 또는 '[' 키를 누르면 평지 마을(내 대지)로 즉시 귀환!
+      if ((e.code === 'KeyH' || e.key === 'h' || e.key === 'H' || e.code === 'BracketLeft' || e.key === '[') && !isInput && this.hasGameStarted) {
         e.preventDefault();
         if (this.world.currentWorldType === 'resource') {
           this.switchWorld('town');
-          this.showNotification('🏡 [ 키를 눌러 평지 마을(내 대지)로 귀환했습니다!', '✨');
+          this.showNotification(`🏡 평지 마을(내 대지 #${this.player.assignedPlotIndex}번)로 귀환했습니다!`, '✨');
         } else {
           this.teleportToMyPlot();
-          this.showNotification(`📍 [ 키를 눌러 내 대지(#${this.player.assignedPlotIndex}) 중심으로 이동했습니다!`, '🏡');
+          this.showNotification(`📍 내 대지(#${this.player.assignedPlotIndex}번) 중심으로 이동했습니다!`, '🏡');
         }
         this.requestPointerLockSafely();
       }
@@ -1492,13 +1478,6 @@ class GameApp {
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 우리 반 마을`;
 
       this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
-      this.battleManager.setNetwork(
-        this.networkManager.getDb(),
-        this.networkManager.roomCode,
-        this.networkManager.currentUser?.uid || `student_${Date.now()}`,
-        this.networkManager.playerName,
-        'student'
-      );
 
       this.teleportToMyPlot();
       this.showNotification(`🎉 선생님께서 입장을 승인하셨습니다! 당신의 대지는 [#${assignedPlot}번]입니다.`, '🏡');
@@ -1700,13 +1679,6 @@ class GameApp {
                 this.playerDisplayEl.textContent = '👑 교사 (관리자)';
                 this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
                 this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
-                this.battleManager.setNetwork(
-                  this.networkManager.getDb(),
-                  this.networkManager.roomCode,
-                  this.networkManager.currentUser?.uid || 'teacher',
-                  this.networkManager.playerName || '교사',
-                  'teacher'
-                );
                 this.showNotification(`마을 #${r.roomCode} [${r.roomName}] 이어하기 성공!`, '👑');
                 this.requestPointerLockSafely();
               } else {
@@ -1804,13 +1776,6 @@ class GameApp {
       this.playerDisplayEl.textContent = '👑 교사 (관리자)';
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
       this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
-      this.battleManager.setNetwork(
-        this.networkManager.getDb(),
-        this.networkManager.roomCode,
-        this.networkManager.currentUser?.uid || 'teacher',
-        this.networkManager.playerName || '교사',
-        'teacher'
-      );
       this.showNotification(`교실 방 #${this.networkManager.roomCode} 개설 완료! 학생들에게 코드를 알려주세요.`, '👑');
       this.requestPointerLockSafely();
     });
@@ -1946,7 +1911,8 @@ class GameApp {
         this.player.position.z,
         this.camera.rotation.y,
         this.world.currentWorldType,
-        this.player.isFlying
+        this.player.isFlying,
+        this.player.isCrouching
       );
       this.networkManager.update(delta, this.world.currentWorldType);
     }
@@ -2001,28 +1967,18 @@ class GameApp {
     }
 
     if (this.world.currentWorldType === 'town') {
-      const isArena = this.world.isArenaZone(this.player.position.x, this.player.position.z);
-      if (isArena) {
-        this.currentZoneLabelEl.textContent = '⚔️ 외곽 배틀 투기장 (결투장 내부)';
-        if (this.btnOpenArenaBattle) this.btnOpenArenaBattle.classList.remove('hidden');
-        return;
-      } else {
-        if (this.btnOpenArenaBattle) this.btnOpenArenaBattle.classList.add('hidden');
-      }
-
       const plot = this.world.getPlotAt(this.player.position.x, this.player.position.z);
       if (plot) {
         if (plot.id === this.player.assignedPlotIndex) {
-          this.currentZoneLabelEl.textContent = `🏡 내 대지 (#${plot.id}) 내부`;
+          this.currentZoneLabelEl.textContent = `🏡 내 대지 (#${plot.id}) 내부 [나의 자리]`;
         } else {
-          this.currentZoneLabelEl.textContent = `대지 #${plot.id} 영역`;
+          this.currentZoneLabelEl.textContent = `대지 #${plot.id} 영역 (내 자리는 #${this.player.assignedPlotIndex}번)`;
         }
       } else {
-        this.currentZoneLabelEl.textContent = '마을 공용 도로/평지';
+        this.currentZoneLabelEl.textContent = `마을 공용 도로 (내 자리: #${this.player.assignedPlotIndex}번 / [H] 귀환)`;
       }
     } else {
-      if (this.btnOpenArenaBattle) this.btnOpenArenaBattle.classList.add('hidden');
-      this.currentZoneLabelEl.textContent = '⛏️ 개발도상국 (자원 채취 전용)';
+      this.currentZoneLabelEl.textContent = `⛏️ 개발도상국 (자원 채취 전용 / 내 자리: #${this.player.assignedPlotIndex}번)`;
     }
   }
 
@@ -2376,6 +2332,13 @@ class GameApp {
         e.stopPropagation();
         const msg = btn.getAttribute('data-msg') || btn.textContent || '';
         if (msg) {
+          const now = Date.now();
+          if (now - this.lastChatSendTime < 5000) {
+            const remainSec = Math.ceil((5000 - (now - this.lastChatSendTime)) / 1000);
+            this.showNotification(`⏳ 배려와 집중을 위해 채팅은 5초 간격으로 전송할 수 있습니다. (${remainSec}초 남음)`, '⏱️');
+            return;
+          }
+          this.lastChatSendTime = now;
           this.networkManager.sendChatMessage(msg);
           this.closeQuickChat();
         }
@@ -2613,7 +2576,10 @@ class GameApp {
   public checkDeforestation(): void {
     this.updateTreeCountUI();
     const count = this.world.getRemainingTreeCount();
-    if (count <= 0 && !this.isDeforestationFloodTriggered) {
+    if (count > 0) {
+      this.isDeforestationFloodOverridden = false;
+    }
+    if (count <= 0 && !this.isDeforestationFloodTriggered && !this.isDeforestationFloodOverridden) {
       this.triggerDeforestationFlood();
     }
   }
@@ -2676,6 +2642,12 @@ class GameApp {
     }
     if (slot.itemType === 'RETURN_STONE') {
       return { emoji: '🧭', name: '마을 귀환석' };
+    }
+    if (slot.itemType === 'BOWL_EMPTY') {
+      return { emoji: '🥣', name: '빈 바가지' };
+    }
+    if (slot.itemType === 'BOWL_WATER') {
+      return { emoji: '🌊', name: '물 바가지' };
     }
     return { emoji: '', name: '빈 슬롯' };
   }
@@ -2755,306 +2727,7 @@ class GameApp {
     });
   }
 
-  /**
-   * [요청 3]: 외곽 배틀 투기장 및 교사 승인 베팅 결투 UI 이벤트 바인딩
-   */
-  private setupBattleUI(): void {
-    // 1. 투기장 진입 시 HUD에 나타나는 '⚔️ 결투 신청하기' 버튼
-    if (this.btnOpenArenaBattle) {
-      this.btnOpenArenaBattle.addEventListener('click', (e) => {
-        e.stopPropagation();
 
-        // 1) 현재 접속 중인 다른 플레이어 목록 조회
-        const players = this.networkManager.getRemotePlayersList();
-        this.battleTargetSelect.innerHTML = '';
-
-        if (players.length === 0) {
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = '현재 마을에 다른 플레이어가 없습니다';
-          this.battleTargetSelect.appendChild(opt);
-          this.btnSubmitBattleRequest.setAttribute('disabled', 'true');
-        } else {
-          this.btnSubmitBattleRequest.removeAttribute('disabled');
-          players.forEach((p) => {
-            const opt = document.createElement('option');
-            opt.value = p.uid;
-            opt.textContent = `${p.name} (대지 #${p.plotId})`;
-            this.battleTargetSelect.appendChild(opt);
-          });
-        }
-
-        // 2) 내가 가방에 소지하고 있는 자원/도구/아이템 목록 채우기
-        this.battleBetItemSelect.innerHTML = '';
-        const myItems: BattleBetItem[] = [];
-
-        this.hotbar.slots.forEach((s) => {
-          if (!s || s.count <= 0) return;
-          if (s.isTool && s.toolType) {
-            const meta = TOOL_METAS[s.toolType];
-            myItems.push({
-              type: 'tool',
-              toolType: s.toolType,
-              count: 1,
-              name: meta.name,
-              emoji: meta.emoji,
-            });
-          } else if (s.blockType !== undefined) {
-            const meta = BLOCK_METAS[s.blockType];
-            myItems.push({
-              type: 'block',
-              blockType: s.blockType,
-              count: s.count,
-              name: meta.name,
-              emoji: meta.emoji,
-            });
-          } else if (s.itemType === 'STICK') {
-            myItems.push({
-              type: 'item',
-              itemType: 'STICK',
-              count: s.count,
-              name: '막대기',
-              emoji: '🥢',
-            });
-          }
-        });
-
-        if (myItems.length === 0) {
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = '가방에 베팅할 자원이나 아이템이 없습니다';
-          this.battleBetItemSelect.appendChild(opt);
-          this.btnSubmitBattleRequest.setAttribute('disabled', 'true');
-        } else {
-          myItems.forEach((item, idx) => {
-            const opt = document.createElement('option');
-            opt.value = idx.toString();
-            opt.textContent = `${item.emoji} ${item.name} (보유: ${item.count}개)`;
-            (opt as any)._betItem = item;
-            this.battleBetItemSelect.appendChild(opt);
-          });
-          // 첫 번째 아이템의 수량에 맞춰 max 조정
-          const first = myItems[0];
-          this.battleBetCountInput.max = first.count.toString();
-          this.battleBetCountInput.value = '1';
-        }
-
-        if (document.pointerLockElement) document.exitPointerLock();
-        this.player.isModalOpen = true;
-        this.battleRequestModal.classList.remove('hidden');
-      });
-    }
-
-    // 아이템 선택 변경 시 수량 input max 갱신
-    if (this.battleBetItemSelect) {
-      this.battleBetItemSelect.addEventListener('change', () => {
-        const opt = this.battleBetItemSelect.selectedOptions[0];
-        const item: BattleBetItem | undefined = (opt as any)?._betItem;
-        if (item) {
-          this.battleBetCountInput.max = item.count.toString();
-          this.battleBetCountInput.value = '1';
-        }
-      });
-    }
-
-    // 모달 닫기
-    if (this.btnCloseBattleRequest) {
-      this.btnCloseBattleRequest.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.battleRequestModal.classList.add('hidden');
-        this.player.isModalOpen = false;
-        this.requestPointerLockSafely();
-      });
-    }
-
-    // 결투 신청 전송 버튼
-    if (this.btnSubmitBattleRequest) {
-      this.btnSubmitBattleRequest.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const targetUid = this.battleTargetSelect.value;
-        if (!targetUid) {
-          this.showNotification('대결 상대를 선택해주세요.', '⚠️');
-          return;
-        }
-
-        const selectedOpt = this.battleTargetSelect.selectedOptions[0];
-        const targetName = selectedOpt ? selectedOpt.textContent?.split(' (')[0] || '상대 플레이어' : '상대 플레이어';
-
-        const itemOpt = this.battleBetItemSelect.selectedOptions[0];
-        const rawBetItem: BattleBetItem | undefined = (itemOpt as any)?._betItem;
-        if (!rawBetItem) {
-          this.showNotification('베팅할 자원/아이템을 선택해주세요.', '⚠️');
-          return;
-        }
-
-        const betCount = Math.max(1, Math.min(rawBetItem.count, parseInt(this.battleBetCountInput.value) || 1));
-        const betItem: BattleBetItem = {
-          ...rawBetItem,
-          count: rawBetItem.type === 'tool' ? 1 : betCount,
-        };
-
-        if (!this.battleManager.hasBetItem(betItem, this.hotbar)) {
-          this.showNotification('🎒 베팅할 자원이 부족합니다!', '⚠️');
-          return;
-        }
-
-        const remotePlayer = this.networkManager.getRemotePlayer(targetUid);
-        const targetPlot = remotePlayer?.data.plotId ?? 0;
-
-        const success = await this.battleManager.requestBattle(
-          targetUid,
-          targetName,
-          targetPlot,
-          this.player.assignedPlotIndex,
-          betItem,
-          this.hotbar
-        );
-
-        if (success) {
-          this.battleRequestModal.classList.add('hidden');
-          this.player.isModalOpen = false;
-          this.updatePlayerSelectedItem();
-          this.showNotification(`⚔️ [${targetName}]님에게 결투를 신청했습니다! 상대방과 교사의 승인을 기다립니다.`, '⏳');
-          this.requestPointerLockSafely();
-        } else {
-          this.showNotification('대결 신청에 실패했습니다. (이미 진행 중인 배틀이 있거나 자원 부족)', '❌');
-        }
-      });
-    }
-
-    // 상대방에게 배틀 신청이 들어온 경우
-    this.battleManager.onBattleRequestedToMe = (session) => {
-      this.battleToastMsg.textContent = `⚔️ [${session.challengerName}]님이 결투를 신청했습니다!`;
-      this.battleToastDetail.textContent = `베팅 판돈: ${session.betItem.emoji} ${session.betItem.name} ${session.betItem.count}개 (수락 시 동일 자원 차감)`;
-      this.battleIncomingToast.classList.remove('hidden');
-
-      this.btnBattleAccept.onclick = async (e) => {
-        e.stopPropagation();
-        if (!this.battleManager.hasBetItem(session.betItem, this.hotbar)) {
-          this.showNotification(`🎒 베팅에 필요한 [${session.betItem.name} ${session.betItem.count}개]가 없어 수락할 수 없습니다!`, '⚠️');
-          return;
-        }
-
-        const ok = await this.battleManager.acceptBattle(this.hotbar);
-        this.battleIncomingToast.classList.add('hidden');
-        if (ok) {
-          this.updatePlayerSelectedItem();
-          this.showNotification('⚔️ 대결 신청을 수락했습니다! 교사의 최종 승인을 기다립니다.', '⏳');
-        }
-      };
-
-      this.btnBattleReject.onclick = async (e) => {
-        e.stopPropagation();
-        await this.battleManager.rejectOrCancelBattle(this.hotbar);
-        this.battleIncomingToast.classList.add('hidden');
-        this.showNotification('대결 신청을 거절했습니다.', '❌');
-      };
-    };
-
-    // 교사 승인 모달
-    this.battleManager.onTeacherApprovalRequired = (session) => {
-      this.vsPlayer1Name.textContent = `${session.challengerName} (#${session.challengerPlot})`;
-      this.vsPlayer2Name.textContent = `${session.targetName} (#${session.targetPlot})`;
-      this.teacherBattleBetInfo.textContent = `베팅 품목: ${session.betItem.emoji} ${session.betItem.name} 각 ${session.betItem.count}개 (총 2배 승자 독식: ${session.betItem.count * 2}개)`;
-
-      if (document.pointerLockElement) document.exitPointerLock();
-      this.player.isModalOpen = true;
-      this.battleTeacherModal.classList.remove('hidden');
-
-      this.btnTeacherApproveBattle.onclick = async (e) => {
-        e.stopPropagation();
-        await this.battleManager.approveBattleByTeacher();
-        this.battleTeacherModal.classList.add('hidden');
-        this.player.isModalOpen = false;
-        this.showNotification(`👑 [${session.challengerName}] vs [${session.targetName}] 투기장 배틀을 승인했습니다!`, '⚔️');
-        this.requestPointerLockSafely();
-      };
-
-      this.btnTeacherCancelBattle.onclick = async (e) => {
-        e.stopPropagation();
-        await this.battleManager.rejectOrCancelBattle();
-        this.battleTeacherModal.classList.add('hidden');
-        this.player.isModalOpen = false;
-        this.showNotification('교사 권한으로 배틀 신청을 기각했습니다.', '🛡️');
-        this.requestPointerLockSafely();
-      };
-
-      if (this.btnCloseTeacherBattle) {
-        this.btnCloseTeacherBattle.onclick = (e) => {
-          e.stopPropagation();
-          this.battleTeacherModal.classList.add('hidden');
-          this.player.isModalOpen = false;
-          this.requestPointerLockSafely();
-        };
-      }
-    };
-
-    // 배틀 시작 시 투기장 HUD 표시 및 선수 텔레포트
-    this.battleManager.onBattleStarted = (session) => {
-      this.battleHud.classList.remove('hidden');
-      this.fighter1NameHud.textContent = session.challengerName;
-      this.fighter2NameHud.textContent = session.targetName;
-      this.fighter1HpFill.style.width = '100%';
-      this.fighter1HpText.textContent = '100/100';
-      this.fighter2HpFill.style.width = '100%';
-      this.fighter2HpText.textContent = '100/100';
-
-      const isChallenger = session.challengerUid === this.battleManager.myUid;
-      const isTarget = session.targetUid === this.battleManager.myUid;
-
-      if (isChallenger || isTarget) {
-        // 투기장이 있는 마을 월드로 자동 전환
-        if (this.world.currentWorldType !== 'town') {
-          this.switchWorld('town');
-        }
-
-        // 투기장 결투 시작 위치로 이동 (도전자 X: -6, 상대 X: 6, Z: 52)
-        if (isChallenger) {
-          this.player.teleport(-6, 2.0, 52);
-        } else {
-          this.player.teleport(6, 2.0, 52);
-        }
-
-        this.showNotification('⚔️ 외곽 투기장 결투 시작! 상대를 조준하고 좌클릭으로 타격하세요!', '🔥');
-      } else {
-        this.showNotification(`⚔️ 투기장에서 [${session.challengerName}] vs [${session.targetName}] 배틀이 시작되었습니다!`, '🏟️');
-      }
-    };
-
-    // 실시간 HP 게이지 갱신
-    this.battleManager.onHpUpdate = (challengerHp, targetHp) => {
-      if (this.fighter1HpFill) this.fighter1HpFill.style.width = `${Math.max(0, challengerHp)}%`;
-      if (this.fighter1HpText) this.fighter1HpText.textContent = `${Math.max(0, challengerHp)}/100`;
-      if (this.fighter2HpFill) this.fighter2HpFill.style.width = `${Math.max(0, targetHp)}%`;
-      if (this.fighter2HpText) this.fighter2HpText.textContent = `${Math.max(0, targetHp)}/100`;
-    };
-
-    // 배틀 종료 시 처리
-    this.battleManager.onBattleEnded = (session, isWinner) => {
-      this.battleHud.classList.add('hidden');
-
-      const isChallenger = session.challengerUid === this.battleManager.myUid;
-      const isTarget = session.targetUid === this.battleManager.myUid;
-
-      if (isWinner) {
-        // 승자: 베팅 자원 2배 지급
-        const doubleCount = session.betItem.count * 2;
-        this.battleManager.refundBetItem({ ...session.betItem, count: doubleCount }, this.hotbar);
-        this.updatePlayerSelectedItem();
-        this.showNotification(`🏆 [결투 승리!] 상대를 쓰러뜨리고 ${session.betItem.emoji} ${session.betItem.name} ${doubleCount}개를 전액 획득했습니다!`, '🎉');
-      } else if (isChallenger || isTarget) {
-        // 패자: 내 대지로 리스폰
-        this.showNotification(`💀 [결투 패배!] 체력이 모두 소진되었습니다. 내 대지로 귀환합니다.`, '💀');
-        setTimeout(() => {
-          this.teleportToMyPlot();
-        }, 1200);
-      } else {
-        // 관전자
-        const winner = session.winnerName || '승자';
-        this.showNotification(`🏆 투기장 결투 종료! [${winner}] 선수의 최종 승리!`, '🏟️');
-      }
-    };
-  }
 }
 
 // 앱 실행

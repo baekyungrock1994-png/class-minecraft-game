@@ -47,9 +47,16 @@ export class PlayerController {
   private miningRing: HTMLElement | null = null;
   private miningCircleFill: SVGPathElement | null = null;
 
-  // 현재 장착 도구 & 블록
+  // 현재 장착 도구 & 블록 & 아이템
   public currentTool: ToolType = ToolType.NONE;
   public currentSelectedBlock: BlockType = BlockType.AIR;
+  public currentSelectedItemType?: string;
+
+  // 캐릭터 앉기 (Crouch / Sneak)
+  public isCrouching: boolean = false;
+
+  // 낙하 데미지 추적 (공중 최고 Y)
+  private highestFallY: number = 0;
 
   // 조작 키 상태
   private keys: Record<string, boolean> = {
@@ -57,6 +64,7 @@ export class PlayerController {
     KeyA: false,
     KeyS: false,
     KeyD: false,
+    KeyC: false,
     Space: false,
     ShiftLeft: false,
     ShiftRight: false,
@@ -80,7 +88,7 @@ export class PlayerController {
   public onOpenChest?: (chestKey: string) => void;
   public onUseItem?: () => boolean; // 핫바 아이템(마을 귀환석 등) 우클릭 사용 콜백
   public onDropItem?: (all: boolean) => void; // Q 키로 손에 든 아이템 버리기 콜백
-  public onAttackPlayer?: () => void; // 투기장 배틀 중 상대방 타격 콜백
+  public onBowlInteract?: (action: 'scoop' | 'pour', x: number, y: number, z: number) => boolean; // [요구사항 12]: 바가지 물 상호작용
 
   // 평화 모드 (PVP 원천 차단)
   public readonly isPvpAllowed: boolean = false;
@@ -138,6 +146,7 @@ export class PlayerController {
   public teleport(x: number, y: number, z: number): void {
     this.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
+    this.highestFallY = y;
   }
 
   /**
@@ -151,6 +160,7 @@ export class PlayerController {
       this.position.y += 0.8;
       this.onGround = false;
     }
+    this.highestFallY = this.position.y;
     return this.isFlying;
   }
 
@@ -178,6 +188,7 @@ export class PlayerController {
     }
     this.position.set(spawnX, groundY + 1 + this.playerHeight, spawnZ);
     this.velocity.set(0, 0, 0);
+    this.highestFallY = this.position.y;
     this.onGround = true;
     this.hp = MAX_HP;
     this.oxygen = 10.0;
@@ -201,6 +212,10 @@ export class PlayerController {
       if (!isInputActive && !this.isModalOpen) {
         if (e.code === 'Comma') {
           e.preventDefault();
+          if (this.currentSelectedItemType === 'BOWL_EMPTY' || this.currentSelectedItemType === 'BOWL_WATER') {
+            const handled = this.handleBowlAction();
+            if (handled) return;
+          }
           this.isMining = true;
           this.viewModel.triggerSwing();
           return;
@@ -270,11 +285,14 @@ export class PlayerController {
     window.addEventListener('mousedown', (e) => {
       if (!this.isLocked || this.isModalOpen) return;
       if (e.button === 0) {
+        // [요구사항 12]: 바가지 들고 있을 때 좌클릭 우선 처리 (물 퍼올리기 / 붓기)
+        if (this.currentSelectedItemType === 'BOWL_EMPTY' || this.currentSelectedItemType === 'BOWL_WATER') {
+          const handled = this.handleBowlAction();
+          if (handled) return;
+        }
+
         this.isMining = true;
         this.viewModel.triggerSwing();
-        if (this.onAttackPlayer) {
-          this.onAttackPlayer();
-        }
       } else if (e.button === 2) {
         if (this.onUseItem && this.onUseItem()) {
           return;
@@ -353,7 +371,8 @@ export class PlayerController {
       this.isMining,
       this.currentTool,
       this.currentSelectedBlock,
-      this.isModalOpen
+      this.isModalOpen,
+      this.currentSelectedItemType
     );
   }
 
@@ -664,9 +683,16 @@ export class PlayerController {
         // 깊은 물속 미세한 침강
         this.velocity.y -= 1.5 * delta;
       }
+      this.highestFallY = this.position.y; // 물속에서는 낙하 거리 리셋
+      this.isCrouching = false;
+      this.playerHeight = 1.8;
     } else {
+      // [요구사항 9]: 캐릭터 앉기 (Crouch / Sneak)
+      this.isCrouching = !this.isFlying && (this.keys.ShiftLeft || this.keys.ShiftRight || this.keys.KeyC);
+      this.playerHeight = this.isCrouching ? 1.35 : 1.8;
+
       // [지상 보행 물리]
-      const moveSpeed = 7.5;
+      const moveSpeed = this.isCrouching ? 3.2 : 7.5;
       const gravity = 25.0;
       const jumpStrength = 7.8; // 1블록을 자연스럽고 쾌적하게 뛰어넘는 마인크래프트 표준 점프력 (약 1.22블록)
 
@@ -687,15 +713,16 @@ export class PlayerController {
       if (this.keys.Space && this.onGround) {
         this.velocity.y = jumpStrength;
         this.onGround = false;
+        this.highestFallY = this.position.y;
       }
       this.velocity.y -= gravity * delta;
       this.velocity.y = Math.max(-20.0, this.velocity.y);
     }
 
-    this.moveWithCollision(delta);
+    this.moveWithCollision(delta, isWater);
   }
 
-  private moveWithCollision(delta: number): void {
+  private moveWithCollision(delta: number, isWater: boolean = false): void {
     // 지형 로딩이나 텔레포트로 블록 내부에 파묻혔을 경우 위로 자동 탈출 (끼임 방지)
     if (this.checkCollision()) {
       for (let step = 0; step < 8; step++) {
@@ -713,6 +740,19 @@ export class PlayerController {
       if (this.velocity.y < 0) {
         const feetY = this.position.y - this.playerHeight;
         this.position.y = Math.floor(feetY) + 1 + this.playerHeight + 0.001;
+
+        // [요구사항 6]: 착지 시 낙하 데미지 계산 (3블록 초과 시 낙하 데미지 발생)
+        if (!this.onGround) {
+          const fallDist = this.highestFallY - this.position.y;
+          if (fallDist > 3.0 && !this.isFlying && !isWater) {
+            const damage = Math.floor((fallDist - 3.0) * 10);
+            if (damage > 0) {
+              this.takeDamage(damage, `높은 곳에서 떨어져 낙하 피해(-${damage} HP)를 입었습니다! 🤕`);
+            }
+          }
+          this.highestFallY = this.position.y;
+        }
+
         this.onGround = true;
       } else {
         this.position.y = Math.floor(this.position.y) - 0.001;
@@ -720,6 +760,10 @@ export class PlayerController {
       this.velocity.y = 0;
     } else {
       this.onGround = false;
+      // 공중에 체공 중일 때 최고 Y 위치 갱신
+      if (this.position.y > this.highestFallY) {
+        this.highestFallY = this.position.y;
+      }
     }
 
     // X, Z축 이동 (한 칸짜리 블록 자동 오르기 삭제: 장애물에 부드럽게 정지하고 스페이스바로 자연스럽게 점프)
@@ -875,5 +919,87 @@ export class PlayerController {
 
     // 1인칭 팔 스윙 연출
     this.viewModel.triggerSwing();
+  }
+
+  /**
+   * [요구사항 12]: 시선 경로 상의 물 블록 검색 (사거리 4.5블록)
+   */
+  public findTargetWaterBlock(): { x: number; y: number; z: number } | null {
+    const rayOrigin = this.camera.position.clone();
+    const rayDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
+    const maxDist = 4.5;
+    const stepSize = 0.1;
+    const current = rayOrigin.clone();
+
+    let prevX = Infinity, prevY = Infinity, prevZ = Infinity;
+
+    for (let d = 0; d < maxDist; d += stepSize) {
+      current.addScaledVector(rayDir, stepSize);
+      const bx = Math.floor(current.x);
+      const by = Math.floor(current.y);
+      const bz = Math.floor(current.z);
+
+      if (bx !== prevX || by !== prevY || bz !== prevZ) {
+        const block = this.world.getBlock(bx, by, bz);
+        if (block === BlockType.WATER) {
+          return { x: bx, y: by, z: bz };
+        }
+        // 물이 아닌 다른 고체 블록이 앞을 가로막고 있으면 차단
+        if (block !== BlockType.AIR) {
+          break;
+        }
+        prevX = bx;
+        prevY = by;
+        prevZ = bz;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * [요구사항 12]: 바가지 좌클릭 상호작용 (물 퍼올리기 / 물 붓기)
+   */
+  public handleBowlAction(): boolean {
+    if (this.currentSelectedItemType === 'BOWL_EMPTY') {
+      // 1. 빈 바가지: 가까이 가서 물 블록을 바라보고 좌클릭 -> 물이 퍼올려짐
+      const waterPos = this.findTargetWaterBlock();
+      if (!waterPos) {
+        if (this.onNotify) this.onNotify('물 블록에 더 가까이 다가가서 좌클릭하세요! 💧', '🥣');
+        return false;
+      }
+
+      if (this.onBowlInteract) {
+        const ok = this.onBowlInteract('scoop', waterPos.x, waterPos.y, waterPos.z);
+        if (ok) {
+          this.viewModel.triggerSwing();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (this.currentSelectedItemType === 'BOWL_WATER') {
+      // 2. 물 담긴 바가지: 원하는 공간을 바라보고 좌클릭 -> 물 블록 생성
+      if (!this.targetBlock) {
+        if (this.onNotify) this.onNotify('물을 부을 블록 표면을 조준하고 좌클릭하세요! 💧', '🥣💧');
+        return false;
+      }
+
+      const { x, y, z, normal } = this.targetBlock;
+      const px = x + normal[0];
+      const py = y + normal[1];
+      const pz = z + normal[2];
+
+      if (this.onBowlInteract) {
+        const ok = this.onBowlInteract('pour', px, py, pz);
+        if (ok) {
+          this.viewModel.triggerSwing();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    return false;
   }
 }
