@@ -316,13 +316,27 @@ class GameApp {
         const curBlock = this.world.getBlock(x, y, z);
         if (curBlock !== BlockType.WATER) return false;
 
+        const isWell = this.world.isWellWater(x, y, z);
+
         // 물 블록 퍼올리기 (물 제거 및 공기로 변경)
         this.world.setBlock(x, y, z, BlockType.AIR);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, x, y, z, BlockType.AIR);
         this.hotbar.swapSelectedBowl('BOWL_WATER');
         this.player.currentSelectedItemType = 'BOWL_WATER';
         this.updatePlayerSelectedItem();
-        this.showNotification('🌊 바가지로 물을 한가득 퍼올렸습니다!', '🥣');
+
+        if (isWell) {
+          this.showNotification('🌊 마을 우물에서 시원한 물을 한 바가지 퍼올렸습니다! (무한 샘솟음)', '🥣');
+          // 무한 우물: 잠시 후 맑은 샘물이 자동으로 다시 차오름
+          setTimeout(() => {
+            if (this.world.currentWorldType === 'town') {
+              this.world.setBlock(x, y, z, BlockType.WATER);
+              this.networkManager.sendBlockDelta('town', x, y, z, BlockType.WATER);
+            }
+          }, 600);
+        } else {
+          this.showNotification('🌊 바가지로 물을 한가득 퍼올렸습니다!', '🥣');
+        }
         return true;
       } else if (action === 'pour') {
         // 물 붓기
@@ -360,8 +374,10 @@ class GameApp {
 
     // 조합대 및 제작(Crafting) 시스템 연동
     this.craftingUI = new CraftingUI(this.hotbar);
-    this.player.onOpenCraftingTable = () => {
+    this.craftingUI.onOpen = () => {
       this.player.setModalOpen(true);
+    };
+    this.player.onOpenCraftingTable = () => {
       this.craftingUI.open();
     };
     this.craftingUI.onClose = () => {
@@ -1967,6 +1983,11 @@ class GameApp {
     }
 
     if (this.world.currentWorldType === 'town') {
+      if (this.world.isPeaceParkZone(this.player.position.x, this.player.position.z)) {
+        this.currentZoneLabelEl.textContent = '🌳 평화의 샘물 공원 (무한 우물 광장)';
+        return;
+      }
+
       const plot = this.world.getPlotAt(this.player.position.x, this.player.position.z);
       if (plot) {
         if (plot.id === this.player.assignedPlotIndex) {

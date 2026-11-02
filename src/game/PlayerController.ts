@@ -64,7 +64,6 @@ export class PlayerController {
     KeyA: false,
     KeyS: false,
     KeyD: false,
-    KeyC: false,
     Space: false,
     ShiftLeft: false,
     ShiftRight: false,
@@ -234,7 +233,7 @@ export class PlayerController {
         }
       }
 
-      // [요청 2]: 'Q' 키를 누르면 현재 손에 든 아이템 1개 (Ctrl/Shift+Q는 묶음 전체) 버리기
+      // [요청 2]: 'Q' 키를 누르면 현재 손에 든 아이템 1개 (Ctrl/Shift+Q는 전체) 버리기
       if (e.code === 'KeyQ' && !isInputActive && !this.isModalOpen && this.isLocked) {
         e.preventDefault();
         if (this.onDropItem) {
@@ -243,6 +242,7 @@ export class PlayerController {
         }
         return;
       }
+
 
       // 모달창이 열려있거나 텍스트 입력 중일 때는 게임 내 이동 키 입력 차단
       if (isInputActive || this.isModalOpen) {
@@ -687,8 +687,8 @@ export class PlayerController {
       this.isCrouching = false;
       this.playerHeight = 1.8;
     } else {
-      // [요구사항 9]: 캐릭터 앉기 (Crouch / Sneak)
-      this.isCrouching = !this.isFlying && (this.keys.ShiftLeft || this.keys.ShiftRight || this.keys.KeyC);
+      // [요구사항 1]: 캐릭터 앉기 (Crouch / Sneak) - 오직 Shift 키만 작동
+      this.isCrouching = !this.isFlying && (this.keys.ShiftLeft || this.keys.ShiftRight);
       this.playerHeight = this.isCrouching ? 1.35 : 1.8;
 
       // [지상 보행 물리]

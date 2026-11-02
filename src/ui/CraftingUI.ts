@@ -210,6 +210,7 @@ export class CraftingUI {
 
   private currentSelectedRecipe: Recipe | null = null;
   public isOpen: boolean = false;
+  public onOpen?: () => void;
   public onCraftSuccess?: (msg: string) => void;
   public onClose?: () => void;
   public onItemDrop?: (data: { type: 'block' | 'item' | 'tool'; blockType?: BlockType; itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER'; toolType?: ToolType; count: number }) => void;
@@ -246,6 +247,9 @@ export class CraftingUI {
     });
 
     window.addEventListener('keydown', (e) => {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(targetTag)) return;
+
       if (e.code === 'KeyE' || e.code === 'KeyC') {
         // E 키나 C 키로 조합창 토글
         if (this.isOpen) {
@@ -268,6 +272,9 @@ export class CraftingUI {
     this.updateRecipeAvailability();
     // 기본으로 첫 번째 가능한 레시피 또는 목재 레시피 선택
     this.selectRecipe(RECIPES[0]);
+    if (this.onOpen) {
+      this.onOpen();
+    }
   }
 
   public close(): void {

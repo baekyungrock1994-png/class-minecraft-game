@@ -373,57 +373,46 @@ export class VoxelWorld {
       pole.position.set(0, 0.7, 0);
       signGroup.add(pole);
 
-      // 2. 고화질 픽셀 캔버스 텍스처 (번호 표지판)
+      // 2. 고화질 나무 판자 텍스처 (나무에 글씨만 써진 정통 표지판 디자인)
       const canvas = document.createElement('canvas');
-      canvas.width = 300;
-      canvas.height = 150;
+      canvas.width = 320;
+      canvas.height = 160;
       const ctx = canvas.getContext('2d')!;
 
-      // 캔버스 배경 (고급 원목 판자 질감)
-      ctx.fillStyle = '#674627';
-      ctx.fillRect(0, 0, 300, 150);
+      // 캔버스 배경: 마인크래프트 정통 참나무(Oak) 원목 판자 질감
+      ctx.fillStyle = '#c49a62';
+      ctx.fillRect(0, 0, 320, 160);
 
-      // 나뭇결 질감
-      ctx.fillStyle = '#55371c';
-      ctx.fillRect(8, 12, 284, 4);
-      ctx.fillRect(8, 70, 284, 3);
-      ctx.fillRect(8, 130, 284, 4);
+      // 자연스러운 나무 판자 가로 결/구분선
+      ctx.fillStyle = '#b3864e';
+      ctx.fillRect(0, 52, 320, 3);
+      ctx.fillRect(0, 106, 320, 3);
 
-      // 선명한 황금빛 테두리
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 8;
-      ctx.strokeRect(4, 4, 292, 142);
+      // 은은한 세로 나뭇결
+      ctx.fillStyle = 'rgba(155, 110, 60, 0.2)';
+      ctx.fillRect(45, 0, 4, 160);
+      ctx.fillRect(115, 0, 3, 160);
+      ctx.fillRect(205, 0, 5, 160);
+      ctx.fillRect(275, 0, 3, 160);
 
-      // 내부 얇은 하이라이트 테두리
-      ctx.strokeStyle = '#fef08a';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(10, 10, 280, 130);
+      // 외곽 원목 모서리 음영선
+      ctx.strokeStyle = '#9c6f37';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, 316, 156);
 
-      // 네 모서리 철 못/리벳
-      ctx.fillStyle = '#d4d4d8';
-      ctx.beginPath();
-      ctx.arc(16, 16, 4, 0, Math.PI * 2);
-      ctx.arc(284, 16, 4, 0, Math.PI * 2);
-      ctx.arc(16, 134, 4, 0, Math.PI * 2);
-      ctx.arc(284, 134, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 메인 텍스트: "구역 #X"
+      // 나무에 직접 새겨진 정갈한 글씨
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#000000';
+
+      // 상단 큰 글씨: 대지 번호
       ctx.font = '900 48px sans-serif';
-      ctx.fillText(`📍 구역 #${plot.id}`, 152, 58);
+      ctx.fillStyle = '#261609'; // 짙은 나무 각인색
+      ctx.fillText(`대지 #${plot.id}`, 160, 52);
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`📍 구역 #${plot.id}`, 150, 56);
-
-      // 서브 텍스트: "내 건축 대지"
-      ctx.font = 'bold 24px sans-serif';
-      ctx.fillStyle = '#000000';
-      ctx.fillText(`[ 대지 #${plot.id} 번호 ]`, 151, 107);
-      ctx.fillStyle = '#fde047';
-      ctx.fillText(`[ 대지 #${plot.id} 번호 ]`, 150, 106);
+      // 하단 글씨: 구역 이름
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillStyle = '#3a2412';
+      ctx.fillText(`${plot.name}`, 160, 112);
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.magFilter = THREE.NearestFilter;
@@ -472,9 +461,12 @@ export class VoxelWorld {
       if (Math.abs(ix) <= 3 && Math.abs(iz) <= 3 && iy <= 8) {
         return true;
       }
-      // [요청 3]: 외곽 배틀 투기장 (x: -11~11, z: 41~63, y: 0~10) - 그 어떤 방법으로도 훼손/파괴 불가!
-      if (ix >= -11 && ix <= 11 && iz >= 41 && iz <= 63 && iy <= 10) {
-        return true;
+      // 공원 무한 우물 구조체 (외벽, 기둥, 지붕) 파괴 보호 (단, 내부 물 블록은 바가지로 퍼갈 수 있도록 허용)
+      if (this.isWellStructure(ix, iy, iz)) {
+        if (this.isWellWater(ix, iy, iz)) {
+          return false; // 물 블록은 퍼가기 허용
+        }
+        return true; // 기둥 및 테두리 파괴 차단
       }
     }
 
@@ -489,13 +481,42 @@ export class VoxelWorld {
   }
 
   /**
-   * 해당 좌표가 외곽 배틀 투기장 내부 구역인지 검사
+   * 해당 좌표가 마을 평화의 샘물 공원 구역인지 검사
    */
-  public isArenaZone(x: number, z: number): boolean {
+  public isPeaceParkZone(x: number, z: number): boolean {
     if (this.currentWorldType !== 'town') return false;
     const ix = Math.floor(x);
     const iz = Math.floor(z);
     return ix >= -10 && ix <= 10 && iz >= 42 && iz <= 62;
+  }
+
+  /**
+   * 기존 호환용 메서드
+   */
+  public isArenaZone(x: number, z: number): boolean {
+    return this.isPeaceParkZone(x, z);
+  }
+
+  /**
+   * 해당 좌표가 무한 우물의 물 블록 위치인지 검사
+   */
+  public isWellWater(x: number, y: number, z: number): boolean {
+    if (this.currentWorldType !== 'town') return false;
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const iz = Math.floor(z);
+    return ix >= 0 && ix <= 1 && iz >= 51 && iz <= 52 && iy >= 3 && iy <= 4;
+  }
+
+  /**
+   * 해당 좌표가 무한 우물의 구조체(외벽 기둥, 테두리, 지붕)인지 검사
+   */
+  public isWellStructure(x: number, y: number, z: number): boolean {
+    if (this.currentWorldType !== 'town') return false;
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const iz = Math.floor(z);
+    return ix >= -1 && ix <= 2 && iz >= 50 && iz <= 53 && iy >= 4 && iy <= 9;
   }
 
   /**
@@ -640,28 +661,45 @@ export class VoxelWorld {
       { name: '신성한 자원 차원문', x: 0.5, y: 5, z: 0 }
     ];
 
-    // [요청 3]: 마을 외곽 배틀 투기장 (Battle Arena) 건축
-    // 1) 마을 북쪽 도로 -> 투기장 입구 연결 도로 (x: -1~2, z: 28~41)
+    // [요구사항 2]: 평화로운 마을 중앙 공원 & 무한 우물(Infinite Water Well) 광장 건축
+    // 1) 마을 북쪽 도로 -> 공원 진입로 연결 (x: -1~2, z: 28~41)
     for (let x = -1; x <= 2; x++) {
       for (let z = 28; z <= 41; z++) {
-        this.townBlocks.set(this.getKey(x, 4, z), BlockType.STONE);
+        // 부드러운 가공 목재 데크와 석재 테두리 산책로
+        const isEdge = (x === -1 || x === 2);
+        this.townBlocks.set(this.getKey(x, 4, z), isEdge ? BlockType.STONE : BlockType.PLANK);
         for (let y = 5; y <= 8; y++) {
           this.townBlocks.delete(this.getKey(x, y, z));
         }
       }
     }
+    // 진입로 양옆 꽃잎/생울타리 조경 (x: -2, 3, z: 29~40)
+    for (let z = 29; z <= 40; z++) {
+      this.townBlocks.set(this.getKey(-2, 4, z), BlockType.GRASS);
+      this.townBlocks.set(this.getKey(3, 4, z), BlockType.GRASS);
+      this.townBlocks.set(this.getKey(-2, 5, z), BlockType.LEAF);
+      this.townBlocks.set(this.getKey(3, 5, z), BlockType.LEAF);
+    }
 
-    // 2) 투기장 바닥 (x: -10~10, z: 42~62)
+    // 2) 평화 공원 광장 바닥 (x: -10~10, z: 42~62)
     for (let x = -10; x <= 10; x++) {
       for (let z = 42; z <= 62; z++) {
-        // 하부 단단한 석재 기반
-        for (let y = 0; y <= 3; y++) {
+        // 하부 단단한 석재 및 흙 기반
+        for (let y = 0; y <= 2; y++) {
           this.townBlocks.set(this.getKey(x, y, z), BlockType.STONE);
         }
-        // 결투장 바닥: 중심 원/라인은 마그마, 외곽은 견고한 돌 블록
-        const distFromCenter = Math.sqrt(x * x + (z - 52) * (z - 52));
-        const isRing = Math.abs(distFromCenter - 6) < 0.8 || (Math.abs(x) < 0.8 && distFromCenter < 8);
-        this.townBlocks.set(this.getKey(x, 4, z), isRing ? BlockType.MAGMA : BlockType.STONE);
+        this.townBlocks.set(this.getKey(x, 3, z), BlockType.DIRT);
+
+        // 지표면(Y=4): 푸른 잔디 기본에 우물 중심 목재/석재 산책로 광장
+        const distFromCenter = Math.sqrt((x - 0.5) * (x - 0.5) + (z - 52) * (z - 52));
+        const isPlazaWalk = (Math.abs(x - 0.5) <= 2.5 || Math.abs(z - 52) <= 2.5) && distFromCenter <= 9.0;
+        const isPlazaRing = Math.abs(distFromCenter - 6.5) <= 1.0;
+
+        if (isPlazaWalk || isPlazaRing) {
+          this.townBlocks.set(this.getKey(x, 4, z), (x + z) % 2 === 0 ? BlockType.PLANK : BlockType.STONE);
+        } else {
+          this.townBlocks.set(this.getKey(x, 4, z), BlockType.GRASS);
+        }
 
         // 내부 공간 에어 확보 (y: 5~12)
         for (let y = 5; y <= 12; y++) {
@@ -670,28 +708,74 @@ export class VoxelWorld {
       }
     }
 
-    // 3) 투기장 둘레 벽 (x: -11, 11 / z: 41, 63, 높이 y: 5~7)
+    // 3) 공원 벤치 및 정원 조경 (휴식 공간)
+    const gardenCorners = [
+      { x: -7, z: 45 }, { x: 7, z: 45 },
+      { x: -7, z: 59 }, { x: 7, z: 59 }
+    ];
+    for (const gc of gardenCorners) {
+      this.townBlocks.set(this.getKey(gc.x, 5, gc.z), BlockType.LEAF);
+      this.townBlocks.set(this.getKey(gc.x + 1, 5, gc.z), BlockType.WOOD_STAIR);
+      this.townBlocks.set(this.getKey(gc.x - 1, 5, gc.z), BlockType.WOOD_STAIR);
+    }
+
+    // 4) 공원 외곽 낮은 생울타리 둘레 (x: -11, 11 / z: 41, 63)
     for (let x = -11; x <= 11; x++) {
       for (let z = 41; z <= 63; z++) {
         const isBorder = (x === -11 || x === 11 || z === 41 || z === 63);
         if (isBorder) {
-          // 남쪽 입구 게이트 (x: -1~2, z: 41)는 문으로 뚫어둠
+          // 남쪽 정문 (x: -1~2, z: 41)은 자연스러운 아치 입구
           if (z === 41 && x >= -1 && x <= 2) {
-            // 바닥 및 상단 아치 지붕
-            this.townBlocks.set(this.getKey(x, 4, z), BlockType.STONE);
-            this.townBlocks.set(this.getKey(x, 8, z), BlockType.STONE);
-            this.townBlocks.set(this.getKey(x, 9, z), BlockType.MAGMA);
+            this.townBlocks.set(this.getKey(x, 4, z), BlockType.PLANK);
             continue;
           }
-
-          // 벽 쌓기 (높이 3블록: Y=5, 6, 7)
-          this.townBlocks.set(this.getKey(x, 5, z), BlockType.STONE);
-          this.townBlocks.set(this.getKey(x, 6, z), BlockType.STONE);
-          // 4모서리 및 4칸 간격으로 마그마 횃불 룬 기둥
-          const isPillar = (Math.abs(x) % 4 === 0 || (z - 41) % 4 === 0);
-          this.townBlocks.set(this.getKey(x, 7, z), isPillar ? BlockType.MAGMA : BlockType.STONE);
+          // 낮은 1단 푸른 나뭇잎 생울타리
+          this.townBlocks.set(this.getKey(x, 4, z), BlockType.GRASS);
+          this.townBlocks.set(this.getKey(x, 5, z), BlockType.LEAF);
+          // 모서리 및 4칸 간격은 나즈막한 원목 울타리 기둥
+          if (Math.abs(x) % 4 === 0 || (z - 41) % 4 === 0) {
+            this.townBlocks.set(this.getKey(x, 5, z), BlockType.WOOD);
+          }
         }
       }
+    }
+
+    // 5) 중앙 무한 우물 (Infinite Well) 건축 (중심: X=0.5, Z=52)
+    // 5-1. 우물 바닥 (Y=2, 3) 및 깊은 맑은 물 (x: 0~1, z: 51~52, Y=3, 4)
+    for (let x = -1; x <= 2; x++) {
+      for (let z = 50; z <= 53; z++) {
+        this.townBlocks.set(this.getKey(x, 2, z), BlockType.STONE);
+        const isInsideWater = (x >= 0 && x <= 1 && z >= 51 && z <= 52);
+        if (isInsideWater) {
+          this.townBlocks.set(this.getKey(x, 3, z), BlockType.WATER);
+          this.townBlocks.set(this.getKey(x, 4, z), BlockType.WATER);
+        } else {
+          this.townBlocks.set(this.getKey(x, 3, z), BlockType.STONE);
+          this.townBlocks.set(this.getKey(x, 4, z), BlockType.STONE);
+        }
+      }
+    }
+
+    // 5-2. 우물 4개 모서리 원목 기둥 (x: -1, 2 / z: 50, 53, Y=5~7)
+    const wellPillars = [
+      { x: -1, z: 50 }, { x: 2, z: 50 },
+      { x: -1, z: 53 }, { x: 2, z: 53 }
+    ];
+    for (const p of wellPillars) {
+      this.townBlocks.set(this.getKey(p.x, 5, p.z), BlockType.WOOD);
+      this.townBlocks.set(this.getKey(p.x, 6, p.z), BlockType.WOOD);
+      this.townBlocks.set(this.getKey(p.x, 7, p.z), BlockType.WOOD);
+    }
+
+    // 5-3. 우물 아늑한 목재 지붕 (Y=8: 처마, Y=9: 용마루)
+    for (let x = -2; x <= 3; x++) {
+      for (let z = 49; z <= 54; z++) {
+        this.townBlocks.set(this.getKey(x, 8, z), BlockType.WOOD_STAIR);
+      }
+    }
+    for (let z = 49; z <= 54; z++) {
+      this.townBlocks.set(this.getKey(0, 9, z), BlockType.PLANK);
+      this.townBlocks.set(this.getKey(1, 9, z), BlockType.PLANK);
     }
   }
 
