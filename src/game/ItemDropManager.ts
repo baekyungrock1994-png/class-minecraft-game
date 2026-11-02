@@ -9,6 +9,8 @@ export interface DropItemData {
   blockType?: BlockType;
   itemType?: 'STICK' | 'RETURN_STONE' | 'BOWL_EMPTY' | 'BOWL_WATER' | 'TREE_SAPLING';
   toolType?: ToolType;
+  durability?: number;
+  maxDurability?: number;
   count: number;
 }
 
@@ -221,7 +223,7 @@ export class ItemDropManager {
               itemName = '나무 씨앗';
               emoji = '🌱';
             } else if (item.data.type === 'tool' && item.data.toolType) {
-              success = hotbar.addTool(item.data.toolType);
+              success = hotbar.addTool(item.data.toolType, item.data.durability);
               const meta = TOOL_METAS[item.data.toolType];
               itemName = meta.name;
               emoji = meta.emoji;

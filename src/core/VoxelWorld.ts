@@ -991,13 +991,6 @@ export class VoxelWorld {
           }
         }
 
-        // 자연 웅덩이/호수 바닥 위 수면(SEA_LEVEL=4)까지 물 블록 등록
-        if (groundY < SEA_LEVEL) {
-          for (let wy = groundY + 1; wy <= SEA_LEVEL; wy++) {
-            this.resourceBlocks.set(this.getKey(x, wy, z), BlockType.WATER);
-          }
-        }
-
         // [지시사항 2]: 참나무 숲 후보지 수집 (완만한 잔디 언덕 지형)
         if (groundY >= 3 && hill <= 3.0) {
           treeCandidateSpots.push({ x, y: groundY + 1, z });

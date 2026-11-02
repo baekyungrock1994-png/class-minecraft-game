@@ -75,6 +75,9 @@
           <span class="pill-icon">✈️</span>
           <span>비행 중 (F)</span>
         </div>
+        <button id="btn-topbar-capture" class="capture-toggle-btn" tabindex="-1" title="관리자 전용: 현재 화면 캡처하여 내 컴퓨터에 자동 저장 (단축키: F2)">
+          📸 캡처 (F2)
+        </button>
         <button id="btn-open-shop" class="shop-toggle-btn" tabindex="-1" title="마을 종묘 상점 열기 (단축키: B)">
           🏪 상점 (B)
         </button>
@@ -256,6 +259,20 @@
         <div class="btn-group">
           <button id="btn-give-resources" class="action-btn secondary">💎 모든 건축 블록 +64개 지급</button>
           <button id="btn-reset-tools" class="action-btn secondary">🔧 도구 내구도 풀 충전</button>
+        </div>
+      </section>
+
+      <!-- 6. 화면 캡처 및 컴퓨터 파일 자동 저장 (관리자/선생님 전용) -->
+      <section class="dev-section capture-section">
+        <div class="section-title">
+          <span>📸 화면 캡처 및 자동 저장</span>
+          <span class="sub-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">관리자 전용</span>
+        </div>
+        <p class="section-desc">현재 마을 3D 화면을 초고화질 이미지로 캡처하여 컴퓨터 파일로 즉시 자동 저장합니다.</p>
+        <div class="btn-group">
+          <button id="btn-capture-screen" class="action-btn success-btn" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff;">
+            📸 현재 화면 캡처 저장 (F2)
+          </button>
         </div>
       </section>
     </div>

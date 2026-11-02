@@ -246,7 +246,7 @@ export class HotbarUI {
     return false;
   }
 
-  public addTool(toolType: ToolType): boolean {
+  public addTool(toolType: ToolType, currentDurability?: number): boolean {
     const meta = TOOL_METAS[toolType];
     // 빈 슬롯 또는 카운트가 0인 슬롯 찾기 (마을 귀환석 슬롯 보호)
     let emptySlot = this.slots.find(s => s.count === 0 && !s.isTool && !s.isItem);
@@ -261,7 +261,7 @@ export class HotbarUI {
     if (emptySlot) {
       emptySlot.isTool = true;
       emptySlot.toolType = toolType;
-      emptySlot.durability = meta.maxDurability;
+      emptySlot.durability = typeof currentDurability === 'number' ? Math.min(currentDurability, meta.maxDurability) : meta.maxDurability;
       emptySlot.maxDurability = meta.maxDurability;
       emptySlot.count = 1;
       emptySlot.blockType = undefined;

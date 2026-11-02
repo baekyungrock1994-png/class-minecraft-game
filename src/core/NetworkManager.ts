@@ -247,7 +247,7 @@ export class NetworkManager {
   /**
    * [교사용] 교사가 생성했던 마을 목록 불러오기
    */
-  public async getTeacherRooms(teacherName: string, teacherPin: string = ''): Promise<Array<{ roomCode: string; roomName: string; createdAt: number }>> {
+  public async getTeacherRooms(teacherName: string, teacherPin: string = ''): Promise<Array<{ roomCode: string; roomName: string; createdAt: number; teacherKey?: string }>> {
     // 1. Firebase rules 인증(auth != null) 필수 충족
     try {
       await this.loginAnonymously();
@@ -259,7 +259,14 @@ export class NetworkManager {
     const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
     const teacherKey = `${cleanTeacher}_${cleanPin}`;
 
-    const roomsMap = new Map<string, { roomCode: string; roomName: string; createdAt: number }>();
+    // 삭제된 방 블랙리스트 확인
+    let deletedCodes: string[] = [];
+    try {
+      const delData = localStorage.getItem('deleted_teacher_rooms');
+      if (delData) deletedCodes = JSON.parse(delData);
+    } catch (e) {}
+
+    const roomsMap = new Map<string, { roomCode: string; roomName: string; createdAt: number; teacherKey?: string }>();
 
     // 2. Firebase 실시간 데이터베이스 서버 조회 (우선 순위 1위)
     try {
@@ -267,7 +274,13 @@ export class NetworkManager {
       if (snap.exists()) {
         const val = snap.val();
         for (const code in val) {
-          roomsMap.set(code, val[code]);
+          if (deletedCodes.includes(code)) {
+            // 이미 삭제된 방이 Firebase에 남아있다면 즉시 서버에서도 청소
+            remove(ref(this.db, `teachers/${teacherKey}/rooms/${code}`)).catch(() => {});
+            remove(ref(this.db, `rooms/${code}`)).catch(() => {});
+            continue;
+          }
+          roomsMap.set(code, { ...val[code], teacherKey });
         }
       }
     } catch (e) {
@@ -280,8 +293,11 @@ export class NetworkManager {
       if (localData) {
         const parsed = JSON.parse(localData);
         for (const item of parsed) {
+          if (deletedCodes.includes(item.roomCode)) {
+            continue;
+          }
           if (!roomsMap.has(item.roomCode)) {
-            roomsMap.set(item.roomCode, item);
+            roomsMap.set(item.roomCode, { ...item, teacherKey });
             // Firebase 서버에도 자동으로 복구 저장 동기화
             update(ref(this.db, `teachers/${teacherKey}/rooms/${item.roomCode}`), item).catch(() => {});
           }
@@ -289,39 +305,69 @@ export class NetworkManager {
       }
     } catch (e) {}
 
-    return Array.from(roomsMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+    return Array.from(roomsMap.values())
+      .filter(r => !deletedCodes.includes(r.roomCode))
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 
   /**
    * [교사용] 마을 영구 삭제
    */
-  public async deleteTeacherRoom(roomCode: string, teacherName: string, teacherPin: string = ''): Promise<boolean> {
+  public async deleteTeacherRoom(roomCode: string, teacherName: string, teacherPin: string = '', explicitTeacherKey?: string): Promise<boolean> {
     try {
       await this.loginAnonymously();
     } catch (e) {}
 
     const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
     const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
-    const teacherKey = `${cleanTeacher}_${cleanPin}`;
+    const teacherKey = explicitTeacherKey || `${cleanTeacher}_${cleanPin}`;
 
+    // 1. 삭제 블랙리스트 등록 (절대 다시 부활하지 않도록 영구 기록)
     try {
-      // 1. 방 전체 데이터 삭제
-      await remove(ref(this.db, `rooms/${roomCode}`));
-      // 2. 교사 목록에서 삭제
-      await remove(ref(this.db, `teachers/${teacherKey}/rooms/${roomCode}`));
-
-      // 3. 로컬스토리지에서도 삭제
-      const localKey = `teacher_rooms_${teacherKey}`;
-      const localData = localStorage.getItem(localKey);
-      if (localData) {
-        const parsed = JSON.parse(localData) as Array<any>;
-        const filtered = parsed.filter(r => r.roomCode !== roomCode);
-        localStorage.setItem(localKey, JSON.stringify(filtered));
+      const deletedKey = 'deleted_teacher_rooms';
+      const existing = localStorage.getItem(deletedKey);
+      const list: string[] = existing ? JSON.parse(existing) : [];
+      if (!list.includes(roomCode)) {
+        list.push(roomCode);
+        localStorage.setItem(deletedKey, JSON.stringify(list));
       }
+    } catch (e) {}
+
+    // 2. 모든 로컬스토리지 키에서 해당 방 완전 박멸
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('teacher_rooms') || k.includes('room'))) {
+          keysToRemove.push(k);
+        }
+      }
+      for (const k of keysToRemove) {
+        const val = localStorage.getItem(k);
+        if (val && val.includes(roomCode)) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((item: any) => item.roomCode !== roomCode);
+              localStorage.setItem(k, JSON.stringify(filtered));
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    // 3. Firebase 실시간 데이터베이스에서 완전 삭제
+    try {
+      await Promise.allSettled([
+        remove(ref(this.db, `rooms/${roomCode}`)),
+        remove(ref(this.db, `teachers/${teacherKey}/rooms/${roomCode}`)),
+        explicitTeacherKey ? remove(ref(this.db, `teachers/${explicitTeacherKey}/rooms/${roomCode}`)) : Promise.resolve(),
+        remove(ref(this.db, `teachers/선생님_1234/rooms/${roomCode}`))
+      ]);
       return true;
     } catch (e) {
-      console.error('Failed to delete room:', e);
-      return false;
+      console.warn('Firebase deletion error (fallback to local delete):', e);
+      return true;
     }
   }
 
@@ -340,6 +386,7 @@ export class NetworkManager {
     const record = {
       roomCode,
       roomName,
+      teacherKey,
       createdAt: Date.now()
     };
 

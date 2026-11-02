@@ -125,7 +125,7 @@ export class ChestManager {
 
     // 1) 도구 인출
     if (sourceSlot.isTool && sourceSlot.toolType) {
-      const added = hotbar.addTool(sourceSlot.toolType);
+      const added = hotbar.addTool(sourceSlot.toolType, sourceSlot.durability);
       if (added) {
         chestSlots[chestSlotIndex] = { count: 0 };
         this.saveChest(chestKey, chestSlots);

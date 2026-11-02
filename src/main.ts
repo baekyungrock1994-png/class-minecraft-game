@@ -185,8 +185,8 @@ class GameApp {
 
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
-    // 2. 고성능 렌더러
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // 2. 고성능 렌더러 (화면 캡처 저장을 위해 preserveDrawingBuffer 활성화)
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -272,6 +272,8 @@ class GameApp {
           type: 'tool',
           worldType: this.world.currentWorldType,
           toolType: dropped.toolType,
+          durability: dropped.durability,
+          maxDurability: dropped.maxDurability,
           count: 1
         }, spawnX, spawnY, spawnZ, 2.0); // 2초간 픽업 지연
       } else if (dropped.blockType !== undefined) {
@@ -350,8 +352,14 @@ class GameApp {
           return false;
         }
 
-        // 평지 마을에서는 대지 권한 검사 (자원 구역은 자유롭게 설치 가능)
-        if (!isResourceWorld && !isTeacher) {
+        // 자원 구역에는 물이 없도록 설정 (물 붓기 차단)
+        if (isResourceWorld) {
+          this.showNotification('🚫 자원 구역(개발도상국)에는 물을 쏟을 수 없습니다!', '🏜️');
+          return false;
+        }
+
+        // 평지 마을에서는 대지 권한 검사
+        if (!isTeacher) {
           const plot = this.world.getPlotAt(x, z);
           if (!plot) {
             this.showNotification(`🚫 마을 공용 도로에는 물을 쏟을 수 없습니다! 내 대지(#${this.player.assignedPlotIndex}) 안에서 사용하세요.`, '🛡️');
@@ -551,7 +559,14 @@ class GameApp {
               if (slot && slot.count > 0) {
                 if (slot.isTool && slot.toolType) {
                   this.itemDropManager.spawnDropItem(
-                    { type: 'tool', worldType: this.world.currentWorldType, toolType: slot.toolType, count: 1 },
+                    {
+                      type: 'tool',
+                      worldType: this.world.currentWorldType,
+                      toolType: slot.toolType,
+                      durability: slot.durability,
+                      maxDurability: slot.maxDurability,
+                      count: 1
+                    },
                     event.x + 0.5, event.y + 0.5, event.z + 0.5
                   );
                 } else if (slot.blockType !== undefined) {
@@ -948,6 +963,23 @@ class GameApp {
       this.btnToggleFly.addEventListener('click', (e) => {
         e.stopPropagation();
         this.toggleFlyMode();
+      });
+    }
+
+    // 6. 화면 캡처 저장 버튼 연동
+    const btnCaptureScreen = document.getElementById('btn-capture-screen');
+    if (btnCaptureScreen) {
+      btnCaptureScreen.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.captureScreen();
+      });
+    }
+
+    const btnTopbarCapture = document.getElementById('btn-topbar-capture');
+    if (btnTopbarCapture) {
+      btnTopbarCapture.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.captureScreen();
       });
     }
   }
@@ -1414,6 +1446,12 @@ class GameApp {
           this.toggleFlyMode();
         }
       }
+
+      // [관리자 기능]: 'F2' 키를 누르면 현재 3D 화면을 캡처하여 파일로 자동 저장
+      if (e.code === 'F2' && !isInput) {
+        e.preventDefault();
+        this.captureScreen();
+      }
     });
   }
 
@@ -1799,13 +1837,14 @@ class GameApp {
             if (!confirm(`정말 #${r.roomCode} (${r.roomName || '마을'})을 영구 삭제하시겠습니까?\n모든 건축 데이터가 삭제됩니다.`)) {
               return;
             }
+            const targetTeacherKey = r.teacherKey || deleteBtn.dataset.teacherKey;
             deleteBtn.setAttribute('disabled', 'true');
             deleteBtn.textContent = '삭제 중...';
             try {
-              const ok = await this.networkManager.deleteTeacherRoom(r.roomCode, tName, tPin);
+              const ok = await this.networkManager.deleteTeacherRoom(r.roomCode, tName, tPin, targetTeacherKey);
               if (ok) {
-                this.showNotification(`마을 #${r.roomCode}가 삭제되었습니다.`, '🗑️');
-                fetchTeacherRoomsList();
+                this.showNotification(`마을 #${r.roomCode}가 영구 삭제되었습니다.`, '🗑️');
+                await fetchTeacherRoomsList();
               } else {
                 showError('마을 삭제 실패');
                 deleteBtn.removeAttribute('disabled');
@@ -2941,6 +2980,39 @@ class GameApp {
     this.player.viewModel.triggerSwing();
     this.updatePlayerSelectedItem();
     return true;
+  }
+
+  /**
+   * [관리자 전용]: 현재 3D 화면을 캡처하여 관리자 컴퓨터 파일로 자동 다운로드/저장
+   */
+  public captureScreen(): void {
+    const isTeacher = (this.networkManager && this.networkManager.role === 'teacher') || this.player.bypassPlotRestriction;
+    if (!isTeacher) {
+      this.showNotification('🚫 화면 캡처 기능은 관리자(선생님) 전용 기능입니다!', '🔒');
+      return;
+    }
+
+    try {
+      // 씬 최신 상태 즉시 렌더링
+      this.renderer.render(this.scene, this.camera);
+      const dataUrl = this.renderer.domElement.toDataURL('image/png');
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const fileName = `마을_화면캡처_${timestamp}.png`;
+
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      this.showNotification(`📸 화면이 캡처되어 내 컴퓨터에 자동 저장되었습니다! (${fileName})`, '💾');
+    } catch (err) {
+      console.error('화면 캡처 오류:', err);
+      this.showNotification('화면 캡처 중 오류가 발생했습니다.', '⚠️');
+    }
   }
 }
 

@@ -434,6 +434,32 @@ html, body {
   background: linear-gradient(135deg, #10b981, #047857);
 }
 
+.capture-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.capture-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.6);
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+}
+
 /* 중앙 알림 배너 */
 #notification-banner {
   align-self: center;
