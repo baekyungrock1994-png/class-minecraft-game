@@ -827,6 +827,22 @@ export class NetworkManager {
   }
 
   /**
+   * 서버(Firebase)에 저장된 해당 방의 모든 블록 변경 내역(worldDeltas) 일괄 조회
+   */
+  public async fetchAllWorldDeltas(): Promise<Record<string, BlockDeltaData> | null> {
+    if (!this.roomCode) return null;
+    try {
+      const snap = await get(ref(this.db, `rooms/${this.roomCode}/worldDeltas`));
+      if (snap.exists()) {
+        return snap.val() as Record<string, BlockDeltaData>;
+      }
+    } catch (err) {
+      console.warn('fetchAllWorldDeltas error:', err);
+    }
+    return null;
+  }
+
+  /**
    * 교사 전용: 특정 10x10 구획(대지)의 건축물 초기화 (장난/훼손 복구)
    */
   public async sendPlotReset(plotId: number, plot: PlotInfo): Promise<void> {

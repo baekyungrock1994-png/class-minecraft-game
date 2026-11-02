@@ -93,6 +93,7 @@ export interface ResourceTreeData {
   rootY: number;
   rootZ: number;
   trunkKeys: string[];
+  leafKeys: string[];
 }
 
 export class VoxelWorld {
@@ -367,31 +368,56 @@ export class VoxelWorld {
   }
 
   /**
-   * 블록 변경 (채굴 및 설치):
-   * 전체 월드가 아닌, 해당 블록이 속한 16x16 청크만 즉시 재구성하므로 0.1ms 이내로 부드럽게 완료됨!
+  public getBlockForWorld(worldType: WorldType, x: number, y: number, z: number): BlockType {
+    if (y < 0 || y >= WORLD_HEIGHT) return BlockType.AIR;
+    const map = worldType === 'town' ? this.townBlocks : this.resourceBlocks;
+    return map.get(this.getKey(x, y, z)) ?? BlockType.AIR;
+  }
+
+  /**
+   * 특정 월드의 블록 갱신 및 3D 청크 메시 즉시 동기화
+   * (현재 활성화된 월드가 아니더라도 백그라운드 3D 청크를 즉시 리빌드하여 차원 이동 시 고스트 현상 완전 박멸)
    */
-  public setBlock(x: number, y: number, z: number, type: BlockType): void {
+  public setBlockForWorld(worldType: WorldType, x: number, y: number, z: number, type: BlockType): boolean {
     const numType = Number(type);
     const key = this.getKey(x, y, z);
-    if (numType === BlockType.AIR || isNaN(numType)) {
-      this.blocks.delete(key);
-    } else {
-      this.blocks.set(key, numType);
+    const map = worldType === 'town' ? this.townBlocks : this.resourceBlocks;
+    const current = map.get(key) ?? BlockType.AIR;
+    const targetType = (numType === BlockType.AIR || isNaN(numType)) ? BlockType.AIR : numType;
+
+    if (current === targetType) {
+      return false; // 이미 동일한 상태인 경우 중복 렌더링 방지
     }
 
-    // 변경된 블록이 속한 청크 리빌드
+    if (targetType === BlockType.AIR) {
+      map.delete(key);
+    } else {
+      map.set(key, targetType);
+    }
+
+    // 변경된 블록이 속한 해당 월드의 청크 리빌드
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
-    this.rebuildChunk(cx, cz);
+    this.buildChunkMesh(worldType, cx, cz);
 
     // 청크 경계선 블록인 경우 인접 청크도 함께 리빌드
     const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
-    if (localX === 0) this.rebuildChunk(cx - 1, cz);
-    if (localX === CHUNK_SIZE - 1) this.rebuildChunk(cx + 1, cz);
-    if (localZ === 0) this.rebuildChunk(cx, cz - 1);
-    if (localZ === CHUNK_SIZE - 1) this.rebuildChunk(cx, cz + 1);
+    if (localX === 0) this.buildChunkMesh(worldType, cx - 1, cz);
+    if (localX === CHUNK_SIZE - 1) this.buildChunkMesh(worldType, cx + 1, cz);
+    if (localZ === 0) this.buildChunkMesh(worldType, cx, cz - 1);
+    if (localZ === CHUNK_SIZE - 1) this.buildChunkMesh(worldType, cx, cz + 1);
+
+    return true;
+  }
+
+  /**
+   * 블록 변경 (채굴 및 설치):
+   * 전체 월드가 아닌, 해당 블록이 속한 16x16 청크만 즉시 재구성하므로 0.1ms 이내로 부드럽게 완료됨!
+   */
+  public setBlock(x: number, y: number, z: number, type: BlockType): void {
+    this.setBlockForWorld(this.currentWorldType, x, y, z, type);
   }
 
   /**
@@ -1035,6 +1061,7 @@ export class VoxelWorld {
 
   private spawnTreeInResource(rootX: number, rootY: number, rootZ: number, treeId: number = 0): void {
     const trunkKeys: string[] = [];
+    const leafKeys: string[] = [];
     const trunkHeight = 4 + Math.floor(Math.abs(Math.sin(rootX * 3 + rootZ)) * 2);
     for (let dy = 0; dy < trunkHeight; dy++) {
       const key = this.getKey(rootX, rootY + dy, rootZ);
@@ -1050,6 +1077,7 @@ export class VoxelWorld {
           if (!this.resourceBlocks.has(key)) {
             this.resourceBlocks.set(key, BlockType.LEAF);
           }
+          leafKeys.push(key);
         }
       }
     }
@@ -1060,9 +1088,37 @@ export class VoxelWorld {
         rootX,
         rootY,
         rootZ,
-        trunkKeys
+        trunkKeys,
+        leafKeys
       });
     }
+  }
+
+  /**
+   * 자원 구역에서 특정 나무의 모든 기둥(WOOD)이 채굴되었을 때, 남은 나뭇잎(LEAF)들을 찾아 반환
+   */
+  public getLeavesToDecayForTreeAt(x: number, y: number, z: number): Array<{ x: number; y: number; z: number }> {
+    const key = this.getKey(x, y, z);
+    const tree = this.resourceTrees.find(t => t.trunkKeys.includes(key));
+    if (!tree) return [];
+
+    // 기둥(WOOD)이 아직 1개라도 남아있는지 검사 (방금 깬 블록 제외)
+    const hasRemainingTrunk = tree.trunkKeys.some(tk => {
+      if (tk === key) return false;
+      return this.resourceBlocks.get(tk) === BlockType.WOOD;
+    });
+
+    if (hasRemainingTrunk) return [];
+
+    // 모든 기둥이 채굴되었음 -> 공중에 남겨진 모든 나뭇잎 좌표 추출
+    const leaves: Array<{ x: number; y: number; z: number }> = [];
+    for (const lk of tree.leafKeys) {
+      if (this.resourceBlocks.get(lk) === BlockType.LEAF) {
+        const [lx, ly, lz] = lk.split(',').map(Number);
+        leaves.push({ x: lx, y: ly, z: lz });
+      }
+    }
+    return leaves;
   }
 
   /**

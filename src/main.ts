@@ -542,6 +542,12 @@ class GameApp {
         this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
         if (event.type === BlockType.WOOD) {
+          // 기둥의 마지막 원목이 파괴된 경우, 공중에 둥둥 떠있는 나뭇잎들도 함께 소멸(Decay) 및 실시간 동기화
+          const leavesToDecay = this.world.getLeavesToDecayForTreeAt(event.x, event.y, event.z);
+          for (const leaf of leavesToDecay) {
+            this.world.setBlockForWorld('resource', leaf.x, leaf.y, leaf.z, BlockType.AIR);
+            this.networkManager.sendBlockDelta('resource', leaf.x, leaf.y, leaf.z, BlockType.AIR);
+          }
           setTimeout(() => this.checkDeforestation(), 50);
         }
         return true;
@@ -1384,24 +1390,8 @@ class GameApp {
     // 1. 다른 플레이어가 설치/파괴한 블록 실시간 수신
     this.networkManager.onBlockUpdate = (delta: BlockDeltaData) => {
       const bType = Number(delta.blockType);
-      if (delta.worldType === this.world.currentWorldType) {
-        this.world.setBlock(delta.x, delta.y, delta.z, bType);
-      } else {
-        const key = `${delta.x},${delta.y},${delta.z}`;
-        if (delta.worldType === 'town') {
-          if (bType === BlockType.AIR) {
-            this.world.townBlocks.delete(key);
-          } else {
-            this.world.townBlocks.set(key, bType);
-          }
-        } else {
-          if (bType === BlockType.AIR) {
-            this.world.resourceBlocks.delete(key);
-          } else {
-            this.world.resourceBlocks.set(key, bType);
-          }
-        }
-      }
+      // 어떤 월드(마을이든 자원 구역이든)에서 발생한 변경이든 즉시 해당 월드 데이터 갱신 및 3D 청크 메시 즉각 리빌드!
+      this.world.setBlockForWorld(delta.worldType, delta.x, delta.y, delta.z, bType);
 
       if (delta.worldType === 'resource' && (bType === BlockType.AIR || bType === 0)) {
         this.checkDeforestation();
@@ -1481,7 +1471,10 @@ class GameApp {
     };
 
     // 8. [학생용] 교사의 마을 입장 승인 수신
-    this.networkManager.onJoinApproved = (assignedPlot: number) => {
+    this.networkManager.onJoinApproved = async (assignedPlot: number) => {
+      // 서버에 저장된 전체 블록 변경 내역을 일괄 동기화하고 양쪽 월드 청크를 완전히 재구성
+      await this.syncInitialWorldDeltas();
+
       this.hasGameStarted = true;
       this.startModal.classList.add('hidden');
 
@@ -1529,6 +1522,62 @@ class GameApp {
       this.hasGameStarted = false;
       this.kickedModal.classList.remove('hidden');
     };
+  }
+
+  /**
+   * 방 입장 시 Firebase DB에 저장된 전체 블록 변경 내역을 일괄 동기화하고 양쪽 월드 청크를 완벽하게 재구성
+   * (다른 사람이 이미 캔 나무/광물이나 설치한 블록이 즉시 화면에 정확히 반영되도록 보장)
+   */
+  public async syncInitialWorldDeltas(): Promise<void> {
+    const deltas = await this.networkManager.fetchAllWorldDeltas();
+    if (!deltas) return;
+
+    let modifiedTown = false;
+    let modifiedResource = false;
+
+    for (const key in deltas) {
+      const d = deltas[key];
+      if (!d || !d.worldType) continue;
+
+      const blockKey = `${d.x},${d.y},${d.z}`;
+      const bType = Number(d.blockType);
+
+      if (d.worldType === 'town') {
+        if (bType === BlockType.AIR || isNaN(bType)) {
+          this.world.townBlocks.delete(blockKey);
+        } else {
+          this.world.townBlocks.set(blockKey, bType);
+        }
+        modifiedTown = true;
+      } else {
+        if (bType === BlockType.AIR || isNaN(bType)) {
+          this.world.resourceBlocks.delete(blockKey);
+        } else {
+          this.world.resourceBlocks.set(blockKey, bType);
+        }
+        modifiedResource = true;
+      }
+    }
+
+    // 자원 구역 죽은 나무의 잔여 나뭇잎 자동 정리 (과거 저장된 방 복원 시에도 깔끔하게 처리)
+    for (const tree of this.world.resourceTrees) {
+      const isDead = tree.trunkKeys.every(k => this.world.resourceBlocks.get(k) !== BlockType.WOOD);
+      if (isDead) {
+        for (const lk of tree.leafKeys) {
+          this.world.resourceBlocks.delete(lk);
+        }
+        modifiedResource = true;
+      }
+    }
+
+    // 변경된 블록이 있는 경우 월드 청크 일괄 재구성
+    if (modifiedTown) {
+      this.world.rebuildAllChunksForWorld('town');
+    }
+    if (modifiedResource) {
+      this.world.rebuildAllChunksForWorld('resource');
+      this.checkDeforestation();
+    }
   }
 
   /**
@@ -1689,6 +1738,7 @@ class GameApp {
             try {
               const res = await this.networkManager.resumeRoom(r.roomCode, tName, tPin);
               if (res.success) {
+                await this.syncInitialWorldDeltas();
                 this.hasGameStarted = true;
                 this.startModal.classList.add('hidden');
                 this.player.bypassPlotRestriction = true;
@@ -1784,8 +1834,9 @@ class GameApp {
     });
 
     // 선생님 입장
-    btnEnterAsTeacher.addEventListener('click', (e) => {
+    btnEnterAsTeacher.addEventListener('click', async (e) => {
       e.stopPropagation();
+      await this.syncInitialWorldDeltas();
       this.hasGameStarted = true;
       this.startModal.classList.add('hidden');
       this.player.bypassPlotRestriction = true; // 교사는 모든 구역 건축 허용
