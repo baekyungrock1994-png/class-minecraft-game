@@ -18,6 +18,7 @@ import {
   onChildChanged,
   onChildRemoved,
   onDisconnect,
+  runTransaction,
   Database,
   DataSnapshot
 } from 'firebase/database';
@@ -65,6 +66,39 @@ export interface JoinRequestData {
   plotId?: number;
 }
 
+/**
+ * 반 전체가 함께하는 "숲 살리기" 공동 미션 상태 (홍수 중에만 active)
+ * 누가 나무를 심든 planted가 1씩 올라가고, 모든 플레이어 화면의 수위가 함께 내려간다.
+ */
+export interface RestorationContributor {
+  name: string;
+  count: number;
+}
+
+export interface RestorationState {
+  active: boolean;
+  kind: 'deforestation' | 'disaster';
+  startLevel: number;
+  planted: number;
+  required: number;
+  contributors?: Record<string, RestorationContributor>;
+  lastPlanterUid?: string;
+  lastPlanterName?: string;
+  startedAt: number;
+  completedAt?: number;
+  cancelledAt?: number;
+}
+
+/** 나무 1그루당 내려가는 수위 (블록) */
+export const RESTORATION_WATER_DROP = 0.4;
+/** 평지 지면 높이: 수위가 여기까지 내려가면 홍수 종료 */
+export const RESTORATION_GROUND_LEVEL = 4.0;
+
+export function getRestorationWaterLevel(state: RestorationState): number {
+  const level = state.startLevel - (state.planted || 0) * RESTORATION_WATER_DROP;
+  return Math.max(RESTORATION_GROUND_LEVEL, Math.round(level * 10) / 10);
+}
+
 export class NetworkManager {
   private app: FirebaseApp;
   private auth: Auth;
@@ -101,6 +135,7 @@ export class NetworkManager {
   public onMyPlotChanged?: (newPlotId: number) => void;
   public onDisasterChange?: (isActive: boolean) => void;
   public onWaterLevelChange?: (level: number) => void;
+  public onRestorationChange?: (state: RestorationState | null) => void;
   public onPendingRequestsUpdate?: (requests: JoinRequestData[]) => void;
   public onJoinApproved?: (plotId: number) => void;
   public onJoinRejected?: () => void;
@@ -264,7 +299,7 @@ export class NetworkManager {
     try {
       const delData = localStorage.getItem('deleted_teacher_rooms');
       if (delData) deletedCodes = JSON.parse(delData);
-    } catch (e) {}
+    } catch (e) { }
 
     const roomsMap = new Map<string, { roomCode: string; roomName: string; createdAt: number; teacherKey?: string }>();
 
@@ -276,8 +311,8 @@ export class NetworkManager {
         for (const code in val) {
           if (deletedCodes.includes(code)) {
             // 이미 삭제된 방이 Firebase에 남아있다면 즉시 서버에서도 청소
-            remove(ref(this.db, `teachers/${teacherKey}/rooms/${code}`)).catch(() => {});
-            remove(ref(this.db, `rooms/${code}`)).catch(() => {});
+            remove(ref(this.db, `teachers/${teacherKey}/rooms/${code}`)).catch(() => { });
+            remove(ref(this.db, `rooms/${code}`)).catch(() => { });
             continue;
           }
           roomsMap.set(code, { ...val[code], teacherKey });
@@ -299,11 +334,11 @@ export class NetworkManager {
           if (!roomsMap.has(item.roomCode)) {
             roomsMap.set(item.roomCode, { ...item, teacherKey });
             // Firebase 서버에도 자동으로 복구 저장 동기화
-            update(ref(this.db, `teachers/${teacherKey}/rooms/${item.roomCode}`), item).catch(() => {});
+            update(ref(this.db, `teachers/${teacherKey}/rooms/${item.roomCode}`), item).catch(() => { });
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     return Array.from(roomsMap.values())
       .filter(r => !deletedCodes.includes(r.roomCode))
@@ -316,7 +351,7 @@ export class NetworkManager {
   public async deleteTeacherRoom(roomCode: string, teacherName: string, teacherPin: string = '', explicitTeacherKey?: string): Promise<boolean> {
     try {
       await this.loginAnonymously();
-    } catch (e) {}
+    } catch (e) { }
 
     const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
     const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
@@ -331,7 +366,7 @@ export class NetworkManager {
         list.push(roomCode);
         localStorage.setItem(deletedKey, JSON.stringify(list));
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // 2. 모든 로컬스토리지 키에서 해당 방 완전 박멸
     try {
@@ -351,10 +386,10 @@ export class NetworkManager {
               const filtered = parsed.filter((item: any) => item.roomCode !== roomCode);
               localStorage.setItem(k, JSON.stringify(filtered));
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // 3. Firebase 실시간 데이터베이스에서 완전 삭제
     try {
@@ -377,7 +412,7 @@ export class NetworkManager {
   private async saveTeacherRoomRecord(roomCode: string, roomName: string, teacherName: string, teacherPin: string): Promise<void> {
     try {
       await this.loginAnonymously();
-    } catch (e) {}
+    } catch (e) { }
 
     const cleanTeacher = encodeURIComponent(teacherName.trim() || '선생님').replace(/\./g, '_');
     const cleanPin = encodeURIComponent(teacherPin.trim() || '1234').replace(/\./g, '_');
@@ -403,7 +438,7 @@ export class NetworkManager {
       list = list.filter(r => r.roomCode !== roomCode);
       list.unshift(record);
       localStorage.setItem(localKey, JSON.stringify(list));
-    } catch (e) {}
+    } catch (e) { }
   }
 
   /**
@@ -428,14 +463,14 @@ export class NetworkManager {
       return { success: false, message: '선생님에 의해 이 교실 마을에서 추방된 계정입니다.' };
     }
 
-    // 2. 정원 검사 (16명)
+    // 2. 정원 검사 (16명 - 본인 재접속 제외)
     const playersSnap = await get(ref(this.db, `rooms/${code}/players`));
     let studentCount = 0;
 
     if (playersSnap.exists()) {
       const players = playersSnap.val();
       for (const uid in players) {
-        if (players[uid].role === 'student') {
+        if (uid !== user.uid && players[uid].role === 'student') {
           studentCount++;
         }
       }
@@ -449,6 +484,32 @@ export class NetworkManager {
     this.role = 'student';
     this.playerName = studentName.trim() || `학생_${Math.floor(Math.random() * 900) + 100}`;
     this.isHost = false;
+
+    // 2-1. 기존 배정 대지(assignedPlots) 확인 -> 이미 입장 승인을 받았던 학생이면 대기 없이 즉시 재접속!
+    const assignedPlotsRef = ref(this.db, `rooms/${code}/assignedPlots`);
+    let prevPlotId: number | null = null;
+    try {
+      const assignedSnap = await get(assignedPlotsRef);
+      if (assignedSnap.exists() && assignedSnap.val()) {
+        const plots = assignedSnap.val();
+        if (plots[user.uid]) {
+          prevPlotId = plots[user.uid];
+        }
+      }
+    } catch (e) {
+      console.warn('assignedPlots check error:', e);
+    }
+
+    if (prevPlotId !== null) {
+      // 이미 승인받았던 학생: 튕김 후 재접속이므로 교사 승인 대기 없이 즉시 입장!
+      this.myPlotId = prevPlotId;
+      await this.registerPlayerInDb(prevPlotId);
+      this.setupListeners();
+      if (this.onJoinApproved) {
+        this.onJoinApproved(prevPlotId);
+      }
+      return { success: true };
+    }
 
     // 3. 교사 승인 대기열(joinRequests)에 등록
     const reqRef = ref(this.db, `rooms/${code}/joinRequests/${user.uid}`);
@@ -554,7 +615,7 @@ export class NetworkManager {
             if (players[uid].plotId) occupiedPlots.add(players[uid].plotId);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       // 2) 이전에 배정된 기록들
       for (const key in assignedPlotsMap) {
@@ -696,6 +757,14 @@ export class NetworkManager {
    */
   private setupListeners(): void {
     if (!this.roomCode) return;
+
+    // 0. 연결 상태 재연결 자동 복구 리스너
+    const connectedRef = ref(this.db, '.info/connected');
+    onValue(connectedRef, (snap) => {
+      if (snap.val() === true && this.currentUser && this.roomCode && this.myPlotId) {
+        this.registerPlayerInDb(this.myPlotId);
+      }
+    });
 
     // 1. 다른 플레이어 상태 동기화
     const playersRef = ref(this.db, `rooms/${this.roomCode}/players`);
@@ -841,6 +910,90 @@ export class NetworkManager {
         }
       }
     });
+
+    // 10. [모든 플레이어] 반 전체 "숲 살리기" 공동 미션 상태 실시간 동기화
+    const restorationRef = ref(this.db, `rooms/${this.roomCode}/gameState/restoration`);
+    onValue(restorationRef, (snap) => {
+      if (this.onRestorationChange) {
+        this.onRestorationChange(snap.exists() ? (snap.val() as RestorationState) : null);
+      }
+    });
+  }
+
+  /**
+   * 홍수 발생 시 "숲 살리기" 공동 미션 시작 (이미 진행 중이면 그대로 유지)
+   * 벌목 홍수는 이를 처음 감지한 플레이어(학생 포함)가, 대재앙은 교사가 시작한다.
+   */
+  public async startRestoration(startLevel: number, kind: 'deforestation' | 'disaster'): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+    const restorationRef = ref(this.db, `rooms/${this.roomCode}/gameState/restoration`);
+    const required = Math.max(1, Math.ceil((startLevel - RESTORATION_GROUND_LEVEL - 0.05) / RESTORATION_WATER_DROP));
+    try {
+      await runTransaction(restorationRef, (cur: RestorationState | null) => {
+        if (cur && cur.active) return; // 이미 모두가 함께 미션 진행 중
+        const next: RestorationState = {
+          active: true,
+          kind,
+          startLevel,
+          planted: 0,
+          required,
+          contributors: {},
+          startedAt: Date.now(),
+        };
+        return next;
+      });
+    } catch (e) {
+      console.warn('startRestoration error:', e);
+    }
+  }
+
+  /**
+   * 나무 1그루 심기 기여 (트랜잭션으로 여러 명이 동시에 심어도 정확히 누적)
+   * 목표 그루 수를 채우면 미션 완료 처리 및 대재앙 상태를 모두에게 해제한다.
+   */
+  public async contributeTree(): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+    const uid = this.currentUser.uid;
+    const name = this.playerName || (this.role === 'teacher' ? '선생님' : '플레이어');
+    const restorationRef = ref(this.db, `rooms/${this.roomCode}/gameState/restoration`);
+    try {
+      const result = await runTransaction(restorationRef, (cur: RestorationState | null) => {
+        if (!cur || !cur.active) return; // 진행 중인 홍수 없음
+        cur.planted = (cur.planted || 0) + 1;
+        cur.contributors = cur.contributors || {};
+        const prev = cur.contributors[uid];
+        cur.contributors[uid] = { name, count: (prev ? prev.count : 0) + 1 };
+        cur.lastPlanterUid = uid;
+        cur.lastPlanterName = name;
+        if (cur.planted >= cur.required) {
+          cur.active = false;
+          cur.completedAt = Date.now();
+        }
+        return cur;
+      });
+
+      const final = result.snapshot.val() as RestorationState | null;
+      if (result.committed && final && !final.active && final.completedAt && final.lastPlanterUid === uid) {
+        // 마지막 나무를 심은 사람이 반 전체의 대재앙 상태를 해제 (새로 접속하는 친구도 평화 상태로 보이도록)
+        await set(ref(this.db, `rooms/${this.roomCode}/gameState/disaster`), { isActive: false, timestamp: Date.now() });
+        await set(ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`), { level: 1.0, timestamp: Date.now() });
+      }
+    } catch (e) {
+      console.warn('contributeTree error:', e);
+    }
+  }
+
+  /**
+   * [교사용] 평화 모드 리셋 시 진행 중인 미션 취소
+   */
+  public async cancelRestoration(): Promise<void> {
+    if (!this.roomCode || this.role !== 'teacher') return;
+    const restorationRef = ref(this.db, `rooms/${this.roomCode}/gameState/restoration`);
+    try {
+      await update(restorationRef, { active: false, cancelledAt: Date.now() });
+    } catch (e) {
+      console.warn('cancelRestoration error:', e);
+    }
   }
 
   private handleIncomingBlockDelta(snap: DataSnapshot): void {
@@ -957,7 +1110,19 @@ export class NetworkManager {
       isFlying,
       isCrouching,
       lastActive: Date.now()
-    }).catch(() => {});
+    }).catch(() => { });
+  }
+
+  public isNameTagsVisible: boolean = true;
+
+  public setNameTagsVisible(visible: boolean): void {
+    this.isNameTagsVisible = visible;
+    for (const [, remote] of this.remotePlayers.entries()) {
+      const sprite = remote.mesh.getObjectByName('nameSprite');
+      if (sprite) {
+        sprite.visible = visible;
+      }
+    }
   }
 
   /**
@@ -986,6 +1151,7 @@ export class NetworkManager {
         const newSprite = this.createNameSprite(labelText, data.role === 'teacher');
         newSprite.name = 'nameSprite';
         newSprite.position.y = 2.15;
+        newSprite.visible = this.isNameTagsVisible;
         remote.mesh.add(newSprite);
       }
     }
@@ -1067,6 +1233,7 @@ export class NetworkManager {
     const nameSprite = this.createNameSprite(labelText, role === 'teacher');
     nameSprite.name = 'nameSprite';
     nameSprite.position.y = 2.15;
+    nameSprite.visible = this.isNameTagsVisible;
     group.add(nameSprite);
 
     return group;
@@ -1150,7 +1317,7 @@ export class NetworkManager {
     try {
       const reqRef = ref(this.db, `rooms/${this.roomCode}/joinRequests/${targetUid}`);
       await update(reqRef, { name: cleanName });
-    } catch (e) {}
+    } catch (e) { }
 
     if (this.currentUser?.uid === targetUid) {
       this.playerName = cleanName;

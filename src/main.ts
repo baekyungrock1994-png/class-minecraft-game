@@ -5,9 +5,14 @@ import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
 import { ShopUI } from './ui/ShopUI.ts';
 import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS } from './core/Constants.ts';
-import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData } from './core/NetworkManager.ts';
+import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData, RestorationState, getRestorationWaterLevel } from './core/NetworkManager.ts';
 import { ItemDropManager } from './game/ItemDropManager.ts';
 import { ChestManager } from './game/ChestManager.ts';
+import { TradeManager } from './game/TradeManager.ts';
+import { BattleManager } from './game/BattleManager.ts';
+import { GlassArtisanUI } from './ui/GlassArtisanUI.ts';
+import { TradeUI } from './ui/TradeUI.ts';
+import { CardGameUI } from './ui/CardGameUI.ts';
 class GameApp {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -20,6 +25,11 @@ class GameApp {
   private hotbar: HotbarUI;
   private craftingUI: CraftingUI;
   private shopUI: ShopUI;
+  private glassArtisanUI: GlassArtisanUI;
+  private tradeManager: TradeManager;
+  private tradeUI: TradeUI;
+  private battleManager: BattleManager;
+  private cardGameUI: CardGameUI;
   public networkManager: NetworkManager;
   public itemDropManager: ItemDropManager;
   public chestManager: ChestManager;
@@ -105,6 +115,9 @@ class GameApp {
   private isDeforestationFloodTriggered: boolean = false;
   private rainParticles: THREE.Points | null = null;
   private isRaining: boolean = false;
+
+  // 반 전체 "숲 살리기" 공동 미션 (홍수 중 모두 함께 나무를 심어 수위 낮추기)
+  private restorationState: RestorationState | null = null;
 
   private timeOfDay: number = 12.0; // 0 ~ 24 시간 단위 (기본 12:00 정오 화창한 낮)
   private isTimeAutoAdvancing: boolean = false; // [수정사항 3]: 시간의 흐름 시스템 삭제 (항상 밝은 상태 유지)
@@ -465,6 +478,82 @@ class GameApp {
       });
     }
 
+    // 유리 장인 공방 (블록 1개 → 유리 2개 교환)
+    this.glassArtisanUI = new GlassArtisanUI(this.hotbar);
+    this.glassArtisanUI.onOpen = () => {
+      this.player.setModalOpen(true);
+    };
+    this.glassArtisanUI.onClose = () => {
+      this.player.setModalOpen(false);
+      this.requestPointerLockSafely();
+    };
+    this.glassArtisanUI.onTradeSuccess = (msg: string) => {
+      this.showNotification(msg, '🪟');
+      this.updatePlayerSelectedItem();
+    };
+    this.player.onOpenGlassArtisan = () => {
+      this.glassArtisanUI.open();
+    };
+
+    // 1:1 거래구역
+    this.tradeManager = new TradeManager();
+    this.tradeUI = new TradeUI(this.tradeManager, this.hotbar);
+    this.tradeUI.onOpen = () => {
+      this.player.setModalOpen(true);
+    };
+    this.tradeUI.onClose = () => {
+      this.player.setModalOpen(false);
+      this.requestPointerLockSafely();
+    };
+    this.tradeUI.onNotify = (msg: string, icon: string) => {
+      this.showNotification(msg, icon);
+      this.updatePlayerSelectedItem();
+    };
+
+    // 1:1 가위바위보 카드 투기장
+    this.battleManager = new BattleManager();
+    this.cardGameUI = new CardGameUI(this.battleManager, this.hotbar);
+    this.cardGameUI.onOpen = () => {
+      this.player.setModalOpen(true);
+    };
+    this.cardGameUI.onClose = () => {
+      this.player.setModalOpen(false);
+      this.requestPointerLockSafely();
+    };
+    this.cardGameUI.onNotify = (msg: string, icon: string) => {
+      this.showNotification(msg, icon);
+      this.updatePlayerSelectedItem();
+    };
+
+    // 나무 문 열기/닫기 (열린 문은 통과 가능)
+    this.player.onToggleDoor = (x: number, y: number, z: number) => {
+      const key = `${x}_${y}_${z}`;
+      if (this.player.openDoors.has(key)) {
+        this.player.openDoors.delete(key);
+        this.showNotification('🚪 문을 닫았습니다.', '🔒');
+      } else {
+        this.player.openDoors.add(key);
+        this.showNotification('🚪 문을 열었습니다. 지나갈 수 있어요!', '🔓');
+      }
+      return true;
+    };
+
+    const headerModalButtons: Array<[string, () => void]> = [
+      ['btn-open-glass-artisan', () => this.glassArtisanUI.open()],
+      ['btn-open-trade', () => this.tradeUI.open()],
+      ['btn-open-arena', () => this.cardGameUI.open()],
+    ];
+    for (const [id, openFn] of headerModalButtons) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!this.hasGameStarted) return;
+        this.player.isModalOpen = true;
+        openFn();
+      });
+    }
+
     this.roomDisplayEl = document.getElementById('room-display')!;
     this.networkManager = new NetworkManager(this.scene);
     this.setupNetworkCallbacks();
@@ -478,22 +567,6 @@ class GameApp {
     this.setupPlayerListModal();
     this.setupQuickChatModal();
     this.setupChestModal();
-
-    // 내 대지 귀환 버튼 클릭 바인딩
-    const btnGotoMyPlot = document.getElementById('btn-goto-my-plot');
-    if (btnGotoMyPlot) {
-      btnGotoMyPlot.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (this.world.currentWorldType === 'resource') {
-          this.switchWorld('town');
-          this.showNotification(`🏡 평지 마을(내 대지 #${this.player.assignedPlotIndex}번)로 귀환했습니다!`, '✨');
-        } else {
-          this.teleportToMyPlot();
-          this.showNotification(`📍 내 대지(#${this.player.assignedPlotIndex}번) 중심으로 이동했습니다!`, '🏡');
-        }
-        this.requestPointerLockSafely();
-      });
-    }
 
     this.initRainSystem();
     this.setupCardNewsModal();
@@ -1045,6 +1118,8 @@ class GameApp {
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(true);
       this.networkManager.sendWaterLevel(this.targetWaterY);
+      // 반 전체 "숲 살리기" 공동 미션 시작
+      this.networkManager.startRestoration(this.targetWaterY, 'disaster');
     }
   }
 
@@ -1056,6 +1131,7 @@ class GameApp {
     this.world.disasterWaterLevel = this.targetWaterY;
     this.world.disasterWaterMesh.visible = true;
     this.world.triggerMagmaEruption();
+    this.applyRestorationWaterLevel(); // 이미 친구들이 나무를 심어 둔 만큼 수위 반영
 
     if (this.disasterStatusBadge) {
       this.disasterStatusBadge.textContent = '🔥 대재앙 발생 중!';
@@ -1063,7 +1139,7 @@ class GameApp {
       this.disasterStatusBadge.style.borderColor = '#ef4444';
     }
 
-    this.showNotification('🚨 [환경 대재앙 발동] 해수면이 폭주하고 지열 마그마가 솟구칩니다! 높은 곳으로 대피하세요!', '🌋');
+    this.showNotification('🚨 [환경 대재앙 발동] 해수면이 폭주하고 마그마가 솟구칩니다! 모두 함께 나무를 심어 마을을 지켜요! 🌳', '🌋');
   }
 
   /**
@@ -1075,10 +1151,11 @@ class GameApp {
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(false);
       this.networkManager.sendWaterLevel(1.0);
+      this.networkManager.cancelRestoration();
     }
   }
 
-  public applyPeaceLocally(): void {
+  public applyPeaceLocally(silent: boolean = false): void {
     this.isDisasterActive = false;
     this.world.isDisasterActive = false;
     this.targetWaterY = 1.0;
@@ -1097,15 +1174,24 @@ class GameApp {
     }
 
     this.setTime(this.timeOfDay); // 원래 시간 조명 복귀
-    this.showNotification('🕊️ 환경이 정화되어 수위가 내려가고 마그마가 굳어 평화가 찾아왔습니다.', '✨');
+    this.updateRestorationHUD();
+    if (!silent) {
+      this.showNotification('🕊️ 환경이 정화되어 수위가 내려가고 마그마가 굳어 평화가 찾아왔습니다.', '✨');
+    }
   }
 
   /**
    * [수정사항 2]: 자원 구역의 참나무 50그루가 전부 벌목되었을 때 약한 홍수와 비 발생 및 카드뉴스 안내
+   * fromNetwork = true: 다른 친구가 먼저 감지해 시작된 공동 미션을 내 화면에 반영하는 경우
    */
-  public triggerDeforestationFlood(): void {
+  public triggerDeforestationFlood(fromNetwork: boolean = false): void {
     if (this.isDeforestationFloodTriggered) return;
     this.isDeforestationFloodTriggered = true;
+
+    // 반 전체 "숲 살리기" 공동 미션 시작 (모든 친구 화면에 홍수가 함께 발생)
+    if (!fromNetwork && this.networkManager) {
+      this.networkManager.startRestoration(5.2, 'deforestation');
+    }
 
     // 마을에 비가 내리고 약한 홍수 발생
     this.isRaining = true;
@@ -1116,6 +1202,9 @@ class GameApp {
     this.targetWaterY = 5.2; // 평지 Y=4.0 기준 1.2블록 차오름 (마을 침수)
     this.world.disasterWaterLevel = this.targetWaterY;
     this.world.disasterWaterMesh.visible = true;
+
+    // 자연 대재앙: 홍수와 함께 평지 마을 곳곳에서 지열 마그마도 분출
+    this.world.triggerMagmaEruption();
 
     // 흐리고 비오는 하늘 분위기 연출
     (this.scene.background as THREE.Color).setHex(0x52606d);
@@ -1132,7 +1221,8 @@ class GameApp {
       this.disasterStatusBadge.style.borderColor = '#38bdf8';
     }
 
-    this.showNotification('🌧️ [경고] 무분별한 벌목으로 숲이 사라져 평지 마을에 폭우와 홍수가 시작되었습니다!', '🌊');
+    this.applyRestorationWaterLevel();
+    this.showNotification('🌧️ [경고] 숲이 사라져 홍수와 마그마가 시작되었습니다! 모두 함께 나무를 심어 수위를 낮춰요! 🌳', '🌋');
 
     // 환경 교육 카드뉴스 모달 팝업 표시
     this.openCardNewsModal();
@@ -1272,10 +1362,32 @@ class GameApp {
     }, 2800);
   }
 
+  /** 유리 장인 / 거래구역 / 카드 투기장 모달 중 하나라도 열려 있는지 */
+  private isSocialModalOpen(): boolean {
+    return !!(
+      (this.glassArtisanUI && this.glassArtisanUI.isOpen) ||
+      (this.tradeUI && this.tradeUI.isOpen) ||
+      (this.cardGameUI && this.cardGameUI.isOpen)
+    );
+  }
+
+  /** 거래구역 / 카드 투기장 매니저에 Firebase 연결 정보 전달 (방 입장 직후 호출) */
+  private connectSocialManagers(): void {
+    const user = this.networkManager.currentUser;
+    const roomCode = this.networkManager.roomCode;
+    if (!user || !roomCode) return;
+    const db = this.networkManager.getDb();
+    const name = this.networkManager.playerName ||
+      (this.networkManager.role === 'teacher' ? '선생님' : '플레이어');
+    this.tradeManager.setNetwork(db, roomCode, user, name);
+    this.battleManager.setNetwork(db, roomCode, user, name);
+  }
+
   public requestPointerLockSafely(): void {
     if (!this.hasGameStarted) return;
     if (this.player && this.player.isModalOpen) return;
     if (this.craftingUI && this.craftingUI.isOpen) return;
+    if (this.isSocialModalOpen()) return;
     if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
     if (document.pointerLockElement === this.renderer.domElement) return;
 
@@ -1320,6 +1432,7 @@ class GameApp {
       if (document.pointerLockElement === canvas) return;
       if (this.player && this.player.isModalOpen) return;
       if (this.craftingUI && this.craftingUI.isOpen) return;
+      if (this.isSocialModalOpen()) return;
       if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
       if (!this.devPanel.classList.contains('hidden')) return;
 
@@ -1328,6 +1441,9 @@ class GameApp {
         target.closest('#top-bar') ||
         target.closest('#hotbar') ||
         target.closest('#crafting-modal') ||
+        target.closest('#glass-artisan-modal') ||
+        target.closest('#trade-modal') ||
+        target.closest('#card-arena-modal') ||
         target.closest('#chest-modal') ||
         target.closest('#dev-panel') ||
         target.closest('#click-to-play') ||
@@ -1367,6 +1483,9 @@ class GameApp {
         if (this.craftingUI && this.craftingUI.isOpen) {
           this.craftingUI.close();
         }
+        if (this.glassArtisanUI && this.glassArtisanUI.isOpen) this.glassArtisanUI.close();
+        if (this.tradeUI && this.tradeUI.isOpen) this.tradeUI.close();
+        if (this.cardGameUI && this.cardGameUI.isOpen) this.cardGameUI.close();
       } else {
         document.body.classList.remove('pointer-locked-mode');
         // ESC를 누르거나 마우스가 풀렸을 때:
@@ -1426,18 +1545,6 @@ class GameApp {
         this.toggleDevPanel();
       }
 
-      // [수정사항 2 & 요구사항]: 'H' 키 또는 '[' 키를 누르면 평지 마을(내 대지)로 즉시 귀환!
-      if ((e.code === 'KeyH' || e.key === 'h' || e.key === 'H' || e.code === 'BracketLeft' || e.key === '[') && !isInput && this.hasGameStarted) {
-        e.preventDefault();
-        if (this.world.currentWorldType === 'resource') {
-          this.switchWorld('town');
-          this.showNotification(`🏡 평지 마을(내 대지 #${this.player.assignedPlotIndex}번)로 귀환했습니다!`, '✨');
-        } else {
-          this.teleportToMyPlot();
-          this.showNotification(`📍 내 대지(#${this.player.assignedPlotIndex}번) 중심으로 이동했습니다!`, '🏡');
-        }
-        this.requestPointerLockSafely();
-      }
 
       // [개발자 기능]: 'F' 키를 누르면 비행 모드 온/오프 즉시 토글 (교사 전용)
       if (e.code === 'KeyF' && !this.player.isModalOpen && !isInput) {
@@ -1522,13 +1629,25 @@ class GameApp {
       if (isActive) {
         this.applyDisasterLocally();
       } else {
-        this.applyPeaceLocally();
+        // 이미 평화 상태(접속 직후, 또는 숲 살리기 미션 완료 축하 직후)면 알림 없이 조용히 정리
+        const wasPeaceful = !this.isDisasterActive && !this.isDeforestationFloodTriggered;
+        this.applyPeaceLocally(wasPeaceful);
       }
     };
 
     // 5-3. [지시사항 2]: 교사가 수동 조절한 해수면 높이 실시간 수신 (학생 화면에도 즉시 동기화)
     this.networkManager.onWaterLevelChange = (level: number) => {
+      // 숲 살리기 미션 중에는 "함께 심은 나무 수"로 계산된 수위가 우선
+      if (this.restorationState && this.restorationState.active) {
+        this.applyRestorationWaterLevel();
+        return;
+      }
       this.applyWaterLevelLocally(level);
+    };
+
+    // 5-4. 반 전체 "숲 살리기" 공동 미션 실시간 수신
+    this.networkManager.onRestorationChange = (state: RestorationState | null) => {
+      this.handleRestorationChange(state);
     };
 
     // 6. 긍정적 멘트 실시간 채팅 수신
@@ -1559,6 +1678,7 @@ class GameApp {
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 우리 반 마을`;
 
       this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
+      this.connectSocialManagers();
 
       this.teleportToMyPlot();
       this.showNotification(`🎉 선생님께서 입장을 승인하셨습니다! 당신의 대지는 [#${assignedPlot}번]입니다.`, '🏡');
@@ -1817,6 +1937,7 @@ class GameApp {
                 this.playerDisplayEl.textContent = '👑 교사 (관리자)';
                 this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
                 this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
+                this.connectSocialManagers();
                 this.showNotification(`마을 #${r.roomCode} [${r.roomName}] 이어하기 성공!`, '👑');
                 this.requestPointerLockSafely();
               } else {
@@ -1916,6 +2037,7 @@ class GameApp {
       this.playerDisplayEl.textContent = '👑 교사 (관리자)';
       this.roomDisplayEl.textContent = `[#${this.networkManager.roomCode}] 👑 1/16명`;
       this.chestManager.setNetwork(this.networkManager.getDb(), this.networkManager.roomCode);
+      this.connectSocialManagers();
       this.showNotification(`교실 방 #${this.networkManager.roomCode} 개설 완료! 학생들에게 코드를 알려주세요.`, '👑');
       this.requestPointerLockSafely();
     });
@@ -2123,7 +2245,7 @@ class GameApp {
           this.currentZoneLabelEl.textContent = `대지 #${plot.id} 영역 (내 자리는 #${this.player.assignedPlotIndex}번)`;
         }
       } else {
-        this.currentZoneLabelEl.textContent = `마을 공용 도로 (내 자리: #${this.player.assignedPlotIndex}번 / [H] 귀환)`;
+        this.currentZoneLabelEl.textContent = `마을 공용 도로 (내 자리: #${this.player.assignedPlotIndex}번)`;
       }
     } else {
       this.currentZoneLabelEl.textContent = `⛏️ 개발도상국 (자원 채취 전용 / 내 자리: #${this.player.assignedPlotIndex}번)`;
@@ -2977,9 +3099,103 @@ class GameApp {
       this.showNotification(`🌱 내 대지(#${this.player.assignedPlotIndex})에 참나무를 심었습니다!`, '🏡');
     }
 
+    // 8. 홍수 중이면 반 전체 "숲 살리기" 미션에 1그루 기여 (모두의 화면에서 수위가 함께 내려감)
+    this.contributeSaplingToRestoration();
+
     this.player.viewModel.triggerSwing();
     this.updatePlayerSelectedItem();
     return true;
+  }
+
+  /**
+   * 묘목 식수 → 반 전체 "숲 살리기" 공동 미션에 1그루 기여
+   * 수위는 개인이 아니라 "반 전체가 함께 심은 나무 수"로 결정되어 모든 친구 화면에 똑같이 반영된다.
+   */
+  private async contributeSaplingToRestoration(): Promise<void> {
+    if (!this.isDisasterActive) return; // 홍수가 없을 때는 평범한 식수
+    if (!this.networkManager) return;
+
+    // 홍수는 진행 중인데 공동 미션이 아직 없다면(이전 버전에서 시작된 재앙 등) 지금 시작
+    if (!this.restorationState || !this.restorationState.active) {
+      const kind = this.isDeforestationFloodTriggered ? 'deforestation' : 'disaster';
+      await this.networkManager.startRestoration(this.targetWaterY, kind);
+    }
+    await this.networkManager.contributeTree();
+  }
+
+  /** 공동 미션 진행도에 맞춰 내 화면 수위 적용 */
+  private applyRestorationWaterLevel(): void {
+    const state = this.restorationState;
+    if (!state || !state.active) return;
+    this.applyWaterLevelLocally(getRestorationWaterLevel(state));
+  }
+
+  /** 상단 HUD의 "함께 숲 살리기" 진행도 갱신 */
+  private updateRestorationHUD(): void {
+    const pill = document.getElementById('restoration-pill');
+    const label = document.getElementById('restoration-label');
+    const fill = document.getElementById('restoration-bar-fill') as HTMLElement | null;
+    if (!pill || !label) return;
+
+    const state = this.restorationState;
+    if (!state || !state.active || !this.isDisasterActive) {
+      pill.classList.add('hidden');
+      return;
+    }
+
+    const planted = state.planted || 0;
+    const contributors = Object.keys(state.contributors || {}).length;
+    pill.classList.remove('hidden');
+    label.textContent = `함께 숲 살리기 ${planted}/${state.required}그루 · 참여 ${contributors}명`;
+    if (fill) {
+      fill.style.width = `${Math.min(100, (planted / state.required) * 100)}%`;
+    }
+  }
+
+  /**
+   * 공동 미션 상태 수신 처리 (모든 플레이어)
+   * - 진행 중: 홍수가 아직 없는 친구 화면에도 홍수 반영, 수위 갱신, 누가 심었는지 알림
+   * - 완료: 모두의 화면이 평화 상태로 돌아가고 참여자들을 함께 축하
+   */
+  private handleRestorationChange(state: RestorationState | null): void {
+    const prev = this.restorationState;
+    this.restorationState = state;
+
+    if (state && state.active) {
+      // 다른 친구가 먼저 감지한 벌목 홍수를 내 화면에도 함께 발생시킴
+      if (state.kind === 'deforestation' && !this.isDeforestationFloodTriggered) {
+        this.triggerDeforestationFlood(true);
+      }
+      this.applyRestorationWaterLevel();
+      this.updateRestorationHUD();
+
+      const prevPlanted = prev && prev.active && prev.startedAt === state.startedAt ? (prev.planted || 0) : null;
+      if (prevPlanted !== null && (state.planted || 0) > prevPlanted) {
+        const remaining = Math.max(0, state.required - state.planted);
+        const myUid = this.networkManager.currentUser?.uid;
+        const who = state.lastPlanterUid === myUid ? '내가' : `${state.lastPlanterName || '친구'}님이`;
+        this.showNotification(
+          `🌱 ${who} 나무를 심었어요! 수위 Y=${getRestorationWaterLevel(state).toFixed(1)} · 홍수 해결까지 ${remaining}그루 남음`,
+          '🤝'
+        );
+      }
+      return;
+    }
+
+    this.updateRestorationHUD();
+
+    // 진행 중이던 미션이 방금 완료됨 → 모두 함께 축하
+    if (prev && prev.active && state && state.completedAt) {
+      this.applyPeaceLocally(true);
+      const list = Object.values(state.contributors || {})
+        .sort((a, b) => b.count - a.count)
+        .map(c => `${c.name}(${c.count})`);
+      const shown = list.slice(0, 6).join(', ') + (list.length > 6 ? ` 외 ${list.length - 6}명` : '');
+      this.showNotification(
+        `🎉 우리 반 ${list.length}명이 함께 ${state.planted}그루를 심어 마을을 구했어요! 고마워요: ${shown}`,
+        '🌳'
+      );
+    }
   }
 
   /**

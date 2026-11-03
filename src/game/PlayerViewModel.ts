@@ -221,12 +221,17 @@ export class PlayerViewModel {
     group.position.set(0.04, 0.18, 0.12);
     group.rotation.set(-0.4, 0.2, -0.6);
 
+    const isIron =
+      tool === ToolType.IRON_PICKAXE ||
+      tool === ToolType.IRON_AXE ||
+      tool === ToolType.IRON_SHOVEL;
+
     const isStone =
       tool === ToolType.STONE_PICKAXE ||
       tool === ToolType.STONE_AXE ||
       tool === ToolType.STONE_SHOVEL;
 
-    const headColor = isStone ? 0x94a3b8 : 0xb45309; // 돌: 슬레이트 그레이, 나무: 진한 목재
+    const headColor = isIron ? 0xe2e8f0 : (isStone ? 0x94a3b8 : 0xb45309); // 철: 은백색 광택 메탈릭, 돌: 슬레이트 그레이, 나무: 진한 목재
     const stickColor = 0x78350f; // 나무 막대 손잡이
 
     const handleMat = new THREE.MeshLambertMaterial({ color: stickColor });
@@ -239,7 +244,7 @@ export class PlayerViewModel {
     group.add(handleMesh);
 
     // 2) 도구별 헤드 날 생성
-    if (tool === ToolType.WOOD_PICKAXE || tool === ToolType.STONE_PICKAXE) {
+    if (tool === ToolType.WOOD_PICKAXE || tool === ToolType.STONE_PICKAXE || tool === ToolType.IRON_PICKAXE) {
       // [곡괭이 T자 헤드]
       const pickHeadGeo = new THREE.BoxGeometry(0.28, 0.06, 0.05);
       const pickHeadMesh = new THREE.Mesh(pickHeadGeo, headMat);
@@ -253,13 +258,13 @@ export class PlayerViewModel {
       const rightTip = new THREE.Mesh(tipGeo, headMat);
       rightTip.position.set(0.13, 0.32, 0);
       group.add(leftTip, rightTip);
-    } else if (tool === ToolType.WOOD_AXE || tool === ToolType.STONE_AXE) {
+    } else if (tool === ToolType.WOOD_AXE || tool === ToolType.STONE_AXE || tool === ToolType.IRON_AXE) {
       // [도끼 비대칭 날]
       const axeHeadGeo = new THREE.BoxGeometry(0.14, 0.12, 0.05);
       const axeHeadMesh = new THREE.Mesh(axeHeadGeo, headMat);
       axeHeadMesh.position.set(0.06, 0.32, 0);
       group.add(axeHeadMesh);
-    } else if (tool === ToolType.WOOD_SHOVEL || tool === ToolType.STONE_SHOVEL) {
+    } else if (tool === ToolType.WOOD_SHOVEL || tool === ToolType.STONE_SHOVEL || tool === ToolType.IRON_SHOVEL) {
       // [삽 넓은 평면 날]
       const shovelBladeGeo = new THREE.BoxGeometry(0.12, 0.14, 0.03);
       const shovelBladeMesh = new THREE.Mesh(shovelBladeGeo, headMat);

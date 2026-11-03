@@ -89,6 +89,9 @@ export class PlayerController {
   public onDropItem?: (all: boolean) => void; // Q 키로 손에 든 아이템 버리기 콜백
   public onBowlInteract?: (action: 'scoop' | 'pour', x: number, y: number, z: number) => boolean; // [요구사항 12]: 바가지 물 상호작용
   public onOpenShop?: () => void; // 상점 열기 콜백
+  public onOpenGlassArtisan?: () => void; // 유리 장인 공방 열기 콜백
+  public onToggleDoor?: (x: number, y: number, z: number) => boolean; // 문 열기/닫기 콜백
+  public openDoors: Set<string> = new Set(); // 열려있는 문 좌표 기록 (충돌 무시)
 
   // 평화 모드 (PVP 원천 차단)
   public readonly isPvpAllowed: boolean = false;
@@ -395,28 +398,28 @@ export class PlayerController {
 
     // 개발자 비행 모드 중에는 익사 및 환경 피해 무적
     if (this.isFlying) {
-      this.oxygen = 30.0;
+      this.oxygen = 10.0;
       this.updateOxygenUI(false);
       return;
     }
 
     const feetY = this.position.y - this.playerHeight;
-    const headY = this.position.y;
+    const headY = this.position.y - 0.2;
 
-    // 1. 물속 상태 검사 (실제 물 블록 또는 자연 웅덩이/침수 구역 여부 검사)
+    // 1. 물속 상태 검사 (머리가 물속에 잠겼는지 검사)
     const isUnderwater = this.world.isPositionInWater(this.position.x, headY, this.position.z);
     if (isUnderwater) {
-      // 산소 30초 동안 넉넉하게 유지 (초당 1씩 소모)
+      // 산소 10초 유지 (초당 1씩 감소)
       this.oxygen = Math.max(0, this.oxygen - delta);
       this.updateOxygenUI(true);
 
-      // 산소 완전 고갈 시 익사 피해 (3초마다 10 피해로 완화)
+      // 산소 완전 고갈 시 익사 피해 (1초마다 10 피해)
       if (this.oxygen <= 0 && this.damageCooldown <= 0) {
-        this.takeDamage(10, '물속에 너무 오래 잠겨 숨이 찼습니다! 💧');
-        this.damageCooldown = 1.5;
+        this.takeDamage(10, '💧 물속에 잠겨 숨이 차 익사 피해(-10 HP)를 입고 있습니다! 수면 위로 올라오세요!');
+        this.damageCooldown = 1.0;
       }
     } else {
-      this.oxygen = 30.0;
+      this.oxygen = 10.0;
       this.updateOxygenUI(false);
     }
 
@@ -532,11 +535,10 @@ export class PlayerController {
     this.oxygenContainer.classList.remove('hidden');
     this.oxygenContainer.innerHTML = '';
     const totalBubbles = 10;
-    const activeBubbles = Math.ceil((this.oxygen / 10.0) * totalBubbles);
+    const activeBubbles = Math.max(0, Math.ceil(this.oxygen));
 
     for (let i = 0; i < totalBubbles; i++) {
       const span = document.createElement('span');
-      const activeBubbles = Math.ceil((this.oxygen / 30.0) * totalBubbles);
       span.className = `bubble-icon ${i < activeBubbles ? 'active' : 'lost'}`;
       span.textContent = i < activeBubbles ? '🫧' : '⚪';
       this.oxygenContainer.appendChild(span);
@@ -726,6 +728,21 @@ export class PlayerController {
       }
       this.velocity.y -= gravity * delta;
       this.velocity.y = Math.max(-20.0, this.velocity.y);
+
+      // [사다리 오르내리기 물리]
+      const isLadder = this.isLadderAtPosition(this.position.x, this.position.y, this.position.z);
+      if (isLadder) {
+        if (this.keys.KeyW || this.keys.Space) {
+          this.velocity.y = 3.6; // 위로 오르기
+        } else if (this.keys.ShiftLeft || this.keys.ShiftRight) {
+          this.velocity.y = 0; // 사다리 매달려 멈추기
+        } else if (this.keys.KeyS) {
+          this.velocity.y = -3.0; // 아래로 하강
+        } else {
+          this.velocity.y = -1.0; // 천천히 미끄러짐
+        }
+        this.highestFallY = this.position.y;
+      }
     }
 
     this.moveWithCollision(delta, isWater);
@@ -799,11 +816,79 @@ export class PlayerController {
     this.position[axis] += deltaVal;
 
     if (this.checkCollision()) {
-      // 충돌 발생: 이동을 취소하고 수평 속도를 0으로 정지
-      this.position[axis] -= deltaVal;
-      if (axis === 'x') this.velocity.x = 0;
-      else this.velocity.z = 0;
+      // 계단(WOOD_STAIR) 자동 오르기: 발치에 턱이 있을 때 부드럽게 한 칸 오름
+      let stepped = false;
+      if (this.onGround && !this.isCrouching) {
+        const stepHeight = 1.0;
+        this.position.y += stepHeight;
+        if (!this.checkCollision()) {
+          stepped = true;
+          for (let s = 0; s < 10; s++) {
+            this.position.y -= 0.1;
+            if (this.checkCollision()) {
+              this.position.y += 0.101;
+              break;
+            }
+          }
+        } else {
+          this.position.y -= stepHeight;
+        }
+      }
+
+      if (!stepped) {
+        this.position[axis] -= deltaVal;
+        if (axis === 'x') this.velocity.x = 0;
+        else this.velocity.z = 0;
+        return;
+      }
     }
+
+    // 웅크리기(Sneak) 시 블록 가장자리(절벽)에서 떨어지지 않도록 방지
+    if (this.isCrouching && this.onGround && !this.isFlying) {
+      if (!this.hasGroundBeneath()) {
+        this.position[axis] -= deltaVal;
+        if (axis === 'x') this.velocity.x = 0;
+        else this.velocity.z = 0;
+      }
+    }
+  }
+
+  private hasGroundBeneath(): boolean {
+    const feetY = Math.floor(this.position.y - this.playerHeight - 0.05);
+    const minX = Math.floor(this.position.x - this.playerRadius + 0.04);
+    const maxX = Math.floor(this.position.x + this.playerRadius - 0.04);
+    const minZ = Math.floor(this.position.z - this.playerRadius + 0.04);
+    const maxZ = Math.floor(this.position.z + this.playerRadius - 0.04);
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        const b = this.world.getBlock(x, feetY, z);
+        if (b !== BlockType.AIR && b !== BlockType.WATER) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  public isLadderAtPosition(x: number, y: number, z: number): boolean {
+    const minX = Math.floor(x - this.playerRadius);
+    const maxX = Math.floor(x + this.playerRadius);
+    const minY = Math.floor(y - this.playerHeight + 0.1);
+    const maxY = Math.floor(y + 0.1);
+    const minZ = Math.floor(z - this.playerRadius);
+    const maxZ = Math.floor(z + this.playerRadius);
+
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        for (let bz = minZ; bz <= maxZ; bz++) {
+          if (this.world.getBlock(bx, by, bz) === BlockType.LADDER) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   private checkCollision(): boolean {
@@ -818,9 +903,24 @@ export class PlayerController {
       for (let y = minY; y <= maxY; y++) {
         for (let z = minZ; z <= maxZ; z++) {
           const block = this.world.getBlock(x, y, z);
-          if (block !== BlockType.AIR && block !== BlockType.WATER) {
-            return true;
+          if (block === BlockType.AIR || block === BlockType.WATER || block === BlockType.LADDER) {
+            continue;
           }
+          // 열려있는 문은 통과 가능
+          if (block === BlockType.DOOR && this.openDoors.has(`${x}_${y}_${z}`)) {
+            continue;
+          }
+          // 울타리는 1.5블록 높이 판정 (위로 점프해서 넘지 못하도록 발이 1.5블록 아래면 충돌)
+          if (block === BlockType.FENCE) {
+            const fenceTop = y + 1.5;
+            const feetY = this.position.y - this.playerHeight;
+            if (feetY < fenceTop && this.position.y > y) {
+              return true;
+            }
+            continue;
+          }
+
+          return true;
         }
       }
     }
@@ -906,6 +1006,22 @@ export class PlayerController {
       if (this.onOpenShop) {
         this.onOpenShop();
         return;
+      }
+    }
+
+    // 만약 바라보고 있는 대상 블록이 유리 장인 공방이면 유리 교환창 열기!
+    if (this.world.isGlassArtisanStructure(this.targetBlock.x, this.targetBlock.y, this.targetBlock.z)) {
+      if (this.onOpenGlassArtisan) {
+        this.onOpenGlassArtisan();
+        return;
+      }
+    }
+
+    // 만약 바라보고 있는 대상 블록이 문(DOOR)이라면 열기/닫기 토글!
+    if (targetBlockType === BlockType.DOOR) {
+      if (this.onToggleDoor) {
+        const handled = this.onToggleDoor(this.targetBlock.x, this.targetBlock.y, this.targetBlock.z);
+        if (handled) return;
       }
     }
 

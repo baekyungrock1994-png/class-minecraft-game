@@ -1,4 +1,4 @@
-import { BlockType, ToolType, BLOCK_METAS, TOOL_METAS, WOOD_SHOVEL_ICON, STONE_SHOVEL_ICON } from '../core/Constants.ts';
+import { BlockType, ToolType, BLOCK_METAS, TOOL_METAS, WOOD_SHOVEL_ICON, STONE_SHOVEL_ICON, IRON_SHOVEL_ICON } from '../core/Constants.ts';
 import { HotbarUI } from './Hotbar.ts';
 
 export type CraftItemType =
@@ -11,12 +11,14 @@ export interface Recipe {
   name: string;
   emoji: string;
   description: string;
+  requiresTable?: boolean; // 조합대 필수 여부 (false면 손으로 기본 제작 가능)
   grid: (string | null)[]; // 9칸 (3x3), null은 빈칸
   cost: {
     wood?: number;
     stone?: number;
     plank?: number;
     stick?: number;
+    iron?: number;
   };
   result: {
     type: 'block' | 'item' | 'tool';
@@ -30,12 +32,13 @@ export interface Recipe {
 }
 
 export const RECIPES: Recipe[] = [
-  // 1. 가공 목재 (원목 1개 -> 목재 4개)
+  // 1. 가공 목재 (원목 1개 -> 목재 4개) [기본 제작 가능]
   {
     id: 'plank',
     name: '가공 목재 (4개)',
     emoji: '📦',
     description: '참나무 원목 1개로 가공 목재 4개 제작',
+    requiresTable: false,
     grid: [
       'WOOD', null, null,
       null, null, null,
@@ -44,12 +47,13 @@ export const RECIPES: Recipe[] = [
     cost: { wood: 1 },
     result: { type: 'block', blockType: BlockType.PLANK, count: 4, name: '가공 목재', emoji: '📦' }
   },
-  // 2. 막대기 (가공목재 2개 -> 막대기 4개)
+  // 2. 막대기 (가공목재 2개 -> 막대기 4개) [기본 제작 가능]
   {
     id: 'stick',
     name: '막대기 (4개)',
     emoji: '🥢',
     description: '가공 목재 2개로 막대기 4개 제작',
+    requiresTable: false,
     grid: [
       'PLANK', null, null,
       'PLANK', null, null,
@@ -58,12 +62,13 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 2 },
     result: { type: 'item', itemType: 'STICK', count: 4, name: '막대기', emoji: '🥢' }
   },
-  // 3. 조합대 (가공목재 4개 -> 조합대 1개)
+  // 3. 조합대 (가공목재 4개 -> 조합대 1개) [기본 제작 가능]
   {
     id: 'crafting_table',
     name: '조합대 (작업대)',
     emoji: '🪑',
-    description: '가공 목재 4개로 3x3 조합대 제작',
+    description: '가공 목재 4개로 3x3 정식 조합대 제작 (설치 후 우클릭하여 모든 도구 제작 가능)',
+    requiresTable: false,
     grid: [
       'PLANK', 'PLANK', null,
       'PLANK', 'PLANK', null,
@@ -72,12 +77,13 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 4 },
     result: { type: 'block', blockType: BlockType.CRAFTING_TABLE, count: 1, name: '조합대', emoji: '🪑' }
   },
-  // 3-1. [수정사항 2]: 보관 상자 (가공목재 8개 -> 10칸 보관함 1개)
+  // 3-1. 보관 상자 (가공목재 8개 -> 10칸 보관함 1개)
   {
     id: 'chest',
     name: '보관 상자 (10칸)',
     emoji: '📦',
     description: '가공 목재 8개로 내 집에 10칸 아이템 보관함 제작',
+    requiresTable: true,
     grid: [
       'PLANK', 'PLANK', 'PLANK',
       'PLANK', null, 'PLANK',
@@ -86,12 +92,13 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 8 },
     result: { type: 'block', blockType: BlockType.CHEST, count: 1, name: '보관 상자', emoji: '📦' }
   },
-  // 3-2. [요구사항 4]: 나무 계단 (가공목재 6개 -> 나무 계단 4개)
+  // 3-2. 나무 계단 (가공목재 6개 -> 나무 계단 4개)
   {
     id: 'wood_stair',
     name: '나무 계단 (4개)',
     emoji: '🪜',
-    description: '가공 목재 6개로 층계를 오르내릴 수 있는 건축용 계단 4개 제작',
+    description: '가공 목재 6개로 점프 없이 걸어서 올라갈 수 있는 계단 4개 제작',
+    requiresTable: true,
     grid: [
       'PLANK', null, null,
       'PLANK', 'PLANK', null,
@@ -100,12 +107,58 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 6 },
     result: { type: 'block', blockType: BlockType.WOOD_STAIR, count: 4, name: '나무 계단', emoji: '🪜' }
   },
-  // 3-3. [요구사항 12]: 나무 바가지 (가공목재 3개 -> 물을 퍼올릴 수 있는 바가지 1개)
+  // 3-3. 나무 사다리 (막대기 7개 -> 사다리 3개)
+  {
+    id: 'ladder',
+    name: '나무 사다리 (3개)',
+    emoji: '🪜',
+    description: '막대기 7개로 벽면을 타고 수직으로 올라갈 수 있는 사다리 3개 제작',
+    requiresTable: true,
+    grid: [
+      'STICK', null, 'STICK',
+      'STICK', 'STICK', 'STICK',
+      'STICK', null, 'STICK'
+    ],
+    cost: { stick: 7 },
+    result: { type: 'block', blockType: BlockType.LADDER, count: 3, name: '나무 사다리', emoji: '🪜' }
+  },
+  // 3-4. 나무 문 (가공목재 6개 -> 문 3개)
+  {
+    id: 'door',
+    name: '나무 문 (3개)',
+    emoji: '🚪',
+    description: '가공 목재 6개로 우클릭하여 열고 닫을 수 있는 출입문 3개 제작',
+    requiresTable: true,
+    grid: [
+      'PLANK', 'PLANK', null,
+      'PLANK', 'PLANK', null,
+      'PLANK', 'PLANK', null
+    ],
+    cost: { plank: 6 },
+    result: { type: 'block', blockType: BlockType.DOOR, count: 3, name: '나무 문', emoji: '🚪' }
+  },
+  // 3-5. 침입 방지 울타리 (가공목재 4 + 막대기 2 -> 울타리 3개)
+  {
+    id: 'fence',
+    name: '침입 방지 울타리 (3개)',
+    emoji: '🚧',
+    description: '다른 플레이어의 침입과 점프를 차단하는 1.5블록 높이 울타리 3개 제작',
+    requiresTable: true,
+    grid: [
+      'PLANK', 'STICK', 'PLANK',
+      'PLANK', 'STICK', 'PLANK',
+      null, null, null
+    ],
+    cost: { plank: 4, stick: 2 },
+    result: { type: 'block', blockType: BlockType.FENCE, count: 3, name: '침입 방지 울타리', emoji: '🚧' }
+  },
+  // 3-6. 나무 바가지 (가공목재 3개 -> 물을 퍼올릴 수 있는 바가지 1개)
   {
     id: 'wooden_bowl',
     name: '나무 바가지',
     emoji: '🥣',
     description: '가공 목재 3개 제작 | 물을 퍼올리고 원하는 위치에 물 블록을 생성',
+    requiresTable: true,
     grid: [
       'PLANK', null, 'PLANK',
       null, 'PLANK', null,
@@ -120,6 +173,7 @@ export const RECIPES: Recipe[] = [
     name: '나무 곡괭이',
     emoji: '⛏️',
     description: '내구도 59 | 돌과 마그마를 채굴할 수 있음',
+    requiresTable: true,
     grid: [
       'PLANK', 'PLANK', 'PLANK',
       null, 'STICK', null,
@@ -134,6 +188,7 @@ export const RECIPES: Recipe[] = [
     name: '돌 곡괭이',
     emoji: '⛏️',
     description: '내구도 131 | 돌을 빠르고 강력하게 채굴',
+    requiresTable: true,
     grid: [
       'STONE', 'STONE', 'STONE',
       null, 'STICK', null,
@@ -142,12 +197,28 @@ export const RECIPES: Recipe[] = [
     cost: { stone: 3, stick: 2 },
     result: { type: 'tool', toolType: ToolType.STONE_PICKAXE, count: 1, name: '돌 곡괭이', emoji: '⛏️' }
   },
+  // 5-1. 무한 철 곡괭이 (철 3 + 막대기 2) [내구도 무한]
+  {
+    id: 'iron_pickaxe',
+    name: '무한 철 곡괭이',
+    emoji: '⛏️✨',
+    description: '내구도 무한(∞) | 돌, 철, 마그마를 절대 부서지지 않고 초고속 채굴!',
+    requiresTable: true,
+    grid: [
+      'IRON', 'IRON', 'IRON',
+      null, 'STICK', null,
+      null, 'STICK', null
+    ],
+    cost: { iron: 3, stick: 2 },
+    result: { type: 'tool', toolType: ToolType.IRON_PICKAXE, count: 1, name: '무한 철 곡괭이', emoji: '⛏️✨' }
+  },
   // 6. 나무 도끼 (목재 3 + 막대기 2)
   {
     id: 'wood_axe',
     name: '나무 도끼',
     emoji: '🪓',
     description: '내구도 59 | 나무와 목재를 빠르게 벌목',
+    requiresTable: true,
     grid: [
       'PLANK', 'PLANK', null,
       'PLANK', 'STICK', null,
@@ -162,6 +233,7 @@ export const RECIPES: Recipe[] = [
     name: '돌 도끼',
     emoji: '🪓',
     description: '내구도 131 | 원목을 매우 빠르게 대량 벌목',
+    requiresTable: true,
     grid: [
       'STONE', 'STONE', null,
       'STONE', 'STICK', null,
@@ -170,12 +242,28 @@ export const RECIPES: Recipe[] = [
     cost: { stone: 3, stick: 2 },
     result: { type: 'tool', toolType: ToolType.STONE_AXE, count: 1, name: '돌 도끼', emoji: '🪓' }
   },
+  // 7-1. 무한 철 도끼 (철 3 + 막대기 2) [내구도 무한]
+  {
+    id: 'iron_axe',
+    name: '무한 철 도끼',
+    emoji: '🪓✨',
+    description: '내구도 무한(∞) | 나무와 목재를 절대 부서지지 않고 초고속 벌목!',
+    requiresTable: true,
+    grid: [
+      'IRON', 'IRON', null,
+      'IRON', 'STICK', null,
+      null, 'STICK', null
+    ],
+    cost: { iron: 3, stick: 2 },
+    result: { type: 'tool', toolType: ToolType.IRON_AXE, count: 1, name: '무한 철 도끼', emoji: '🪓✨' }
+  },
   // 8. 나무 삽 (목재 1 + 막대기 2)
   {
     id: 'wood_shovel',
     name: '나무 삽',
     emoji: WOOD_SHOVEL_ICON,
     description: '내구도 59 | 흙을 빠르게 파낼 수 있음',
+    requiresTable: true,
     grid: [
       null, 'PLANK', null,
       null, 'STICK', null,
@@ -190,6 +278,7 @@ export const RECIPES: Recipe[] = [
     name: '돌 삽',
     emoji: STONE_SHOVEL_ICON,
     description: '내구도 131 | 흙과 잔디를 초고속 굴착',
+    requiresTable: true,
     grid: [
       null, 'STONE', null,
       null, 'STICK', null,
@@ -197,6 +286,21 @@ export const RECIPES: Recipe[] = [
     ],
     cost: { stone: 1, stick: 2 },
     result: { type: 'tool', toolType: ToolType.STONE_SHOVEL, count: 1, name: '돌 삽', emoji: STONE_SHOVEL_ICON }
+  },
+  // 9-1. 무한 철 삽 (철 1 + 막대기 2) [내구도 무한]
+  {
+    id: 'iron_shovel',
+    name: '무한 철 삽',
+    emoji: IRON_SHOVEL_ICON,
+    description: '내구도 무한(∞) | 흙과 잔디를 절대 부서지지 않고 초고속 굴착!',
+    requiresTable: true,
+    grid: [
+      null, 'IRON', null,
+      null, 'STICK', null,
+      null, 'STICK', null
+    ],
+    cost: { iron: 1, stick: 2 },
+    result: { type: 'tool', toolType: ToolType.IRON_SHOVEL, count: 1, name: '무한 철 삽', emoji: IRON_SHOVEL_ICON }
   },
 ];
 
@@ -250,28 +354,38 @@ export class CraftingUI {
       const targetTag = (e.target as HTMLElement)?.tagName;
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(targetTag)) return;
 
-      if (e.code === 'KeyE' || e.code === 'KeyC') {
-        // E 키나 C 키로 조합창 토글
-        if (this.isOpen) {
-          this.close();
-        } else {
-          this.open();
-        }
+      // [수정사항]: C 키로 조합창이 열리는 기능 삭제.
+      // E 키는 창이 열려있을 때 닫기용으로 작동.
+      if (e.code === 'KeyE' && this.isOpen) {
+        this.close();
       } else if (e.code === 'Escape' && this.isOpen) {
         this.close();
       }
     });
   }
 
-  public open(): void {
+  public isCraftingTableMode: boolean = false;
+
+  public open(isTable: boolean = false): void {
+    this.isCraftingTableMode = isTable;
     this.isOpen = true;
     this.modal.classList.remove('hidden');
     if (document.pointerLockElement) {
       document.exitPointerLock();
     }
+
+    const titleEl = this.modal.querySelector('.crafting-title span:last-child') || this.modal.querySelector('.crafting-title h3');
+    if (titleEl) {
+      titleEl.textContent = isTable ? '조합대 (3×3 작업대)' : '기본 제작 (간이 2×2)';
+    }
+
+    this.initRecipeBook();
     this.updateRecipeAvailability();
-    // 기본으로 첫 번째 가능한 레시피 또는 목재 레시피 선택
-    this.selectRecipe(RECIPES[0]);
+    const availableRecipes = RECIPES.filter(r => this.isCraftingTableMode || !r.requiresTable);
+    if (availableRecipes.length > 0) {
+      this.selectRecipe(availableRecipes[0]);
+    }
+
     if (this.onOpen) {
       this.onOpen();
     }
@@ -288,7 +402,8 @@ export class CraftingUI {
 
   private initRecipeBook(): void {
     this.recipeListEl.innerHTML = '';
-    RECIPES.forEach(recipe => {
+    const filteredRecipes = RECIPES.filter(r => this.isCraftingTableMode || !r.requiresTable);
+    filteredRecipes.forEach(recipe => {
       const itemEl = document.createElement('div');
       itemEl.className = 'recipe-card';
       itemEl.dataset.id = recipe.id;
@@ -315,6 +430,7 @@ export class CraftingUI {
     if (recipe.cost.stone) parts.push(`돌 ×${recipe.cost.stone}`);
     if (recipe.cost.plank) parts.push(`목재 ×${recipe.cost.plank}`);
     if (recipe.cost.stick) parts.push(`막대기 ×${recipe.cost.stick}`);
+    if (recipe.cost.iron) parts.push(`철 ×${recipe.cost.iron}`);
     return parts.join(' | ');
   }
 
@@ -361,6 +477,7 @@ export class CraftingUI {
       case 'STONE': return '🪨';
       case 'PLANK': return '📦';
       case 'STICK': return '🥢';
+      case 'IRON': return '🪙';
       default: return '❓';
     }
   }
@@ -371,6 +488,7 @@ export class CraftingUI {
       case 'STONE': return '돌 블록';
       case 'PLANK': return '가공 목재';
       case 'STICK': return '막대기';
+      case 'IRON': return '철 블록';
       default: return '';
     }
   }
@@ -380,20 +498,23 @@ export class CraftingUI {
     const stoneHas = this.hotbar.getCount(BlockType.STONE);
     const plankHas = this.hotbar.getCount(BlockType.PLANK);
     const stickHas = this.hotbar.getCount('STICK');
+    const ironHas = this.hotbar.getCount(BlockType.IRON_BLOCK);
 
     if (recipe.cost.wood && woodHas < recipe.cost.wood) return false;
     if (recipe.cost.stone && stoneHas < recipe.cost.stone) return false;
     if (recipe.cost.plank && plankHas < recipe.cost.plank) return false;
     if (recipe.cost.stick && stickHas < recipe.cost.stick) return false;
+    if (recipe.cost.iron && ironHas < recipe.cost.iron) return false;
 
     return true;
   }
 
   private updateRecipeAvailability(): void {
     const cards = this.recipeListEl.querySelectorAll('.recipe-card');
+    const filteredRecipes = RECIPES.filter(r => this.isCraftingTableMode || !r.requiresTable);
     cards.forEach((card, idx) => {
-      const recipe = RECIPES[idx];
-      if (this.canCraft(recipe)) {
+      const recipe = filteredRecipes[idx];
+      if (recipe && this.canCraft(recipe)) {
         card.classList.remove('disabled');
       } else {
         card.classList.add('disabled');
@@ -440,6 +561,7 @@ export class CraftingUI {
     if (r.cost.stone) this.hotbar.consumeResource(BlockType.STONE, r.cost.stone);
     if (r.cost.plank) this.hotbar.consumeResource(BlockType.PLANK, r.cost.plank);
     if (r.cost.stick) this.hotbar.consumeItem('STICK', r.cost.stick);
+    if (r.cost.iron) this.hotbar.consumeResource(BlockType.IRON_BLOCK, r.cost.iron);
 
     // 2. 결과물 지급
     let added = false;

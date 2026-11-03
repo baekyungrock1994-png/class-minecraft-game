@@ -66,6 +66,11 @@ export class HotbarUI {
   public useCurrentTool(): void {
     const slot = this.getSelectedSlot();
     if (slot.isTool && slot.durability !== undefined) {
+      // 무한 도구(Infinity)는 내구도가 절대 소모되지 않음
+      if (slot.durability === Infinity || slot.maxDurability === Infinity) {
+        return;
+      }
+
       slot.durability -= 1;
 
       if (slot.durability <= 0) {
@@ -162,10 +167,19 @@ export class HotbarUI {
   }
 
   public consumeResource(type: BlockType, amount: number = 1): boolean {
-    const slot = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type);
+    const slot = this.slots.find(s => !s.isTool && !s.isItem && s.blockType === type && s.count > 0);
     if (slot && slot.count >= amount) {
       slot.count -= amount;
+      if (slot.count <= 0) {
+        slot.count = 0;
+        slot.blockType = undefined;
+        slot.isItem = false;
+        slot.itemType = undefined;
+      }
       this.render();
+      if (this.onSelectChange) {
+        this.onSelectChange(this.getSelectedSlot());
+      }
       return true;
     }
     return false;
@@ -228,10 +242,11 @@ export class HotbarUI {
   }
 
   public consumeItem(itemType: 'STICK' | 'TREE_SAPLING', amount: number = 1): boolean {
-    const slot = this.slots.find(s => s.isItem && s.itemType === itemType);
+    const slot = this.slots.find(s => s.isItem && s.itemType === itemType && s.count > 0);
     if (slot && slot.count >= amount) {
       slot.count -= amount;
-      if (slot.count === 0) {
+      if (slot.count <= 0) {
+        slot.count = 0;
         slot.isItem = false;
         slot.itemType = undefined;
         slot.itemName = undefined;
@@ -310,11 +325,12 @@ export class HotbarUI {
       const slotEl = document.createElement('div');
       slotEl.className = `slot ${i === this.selectedIndex ? 'active' : ''}`;
 
-      if (slot.isTool && slot.toolType) {
+      if (slot.isTool && slot.toolType && slot.count > 0) {
         const meta = TOOL_METAS[slot.toolType];
-        slotEl.title = `${meta.name} (내구도: ${slot.durability}/${slot.maxDurability})`;
-        const pct = Math.max(0, (slot.durability! / slot.maxDurability!) * 100);
-        const barColor = pct > 50 ? '#10b981' : pct > 20 ? '#f59e0b' : '#ef4444';
+        const isInfinite = slot.durability === Infinity || slot.maxDurability === Infinity;
+        slotEl.title = isInfinite ? `${meta.name} (내구도: 무한 ∞)` : `${meta.name} (내구도: ${slot.durability}/${slot.maxDurability})`;
+        const pct = isInfinite ? 100 : Math.max(0, (slot.durability! / slot.maxDurability!) * 100);
+        const barColor = isInfinite ? '#38bdf8' : (pct > 50 ? '#10b981' : pct > 20 ? '#f59e0b' : '#ef4444');
 
         slotEl.innerHTML = `
           <span class="slot-num">${i + 1}</span>
@@ -325,7 +341,7 @@ export class HotbarUI {
             <div class="durability-fill" style="width: ${pct}%; background-color: ${barColor};"></div>
           </div>
         `;
-      } else if (slot.isItem && slot.itemType) {
+      } else if (slot.isItem && slot.itemType && slot.count > 0) {
         slotEl.title = `${slot.itemName} (수량: ${slot.count})`;
         slotEl.innerHTML = `
           <span class="slot-num">${i + 1}</span>
@@ -334,7 +350,7 @@ export class HotbarUI {
           </div>
           <span class="slot-count" id="slot-count-${i}">${slot.count}</span>
         `;
-      } else if (slot.blockType !== undefined) {
+      } else if (slot.blockType !== undefined && slot.count > 0) {
         const meta = BLOCK_METAS[slot.blockType];
         slotEl.title = `${meta.name} (키: ${i + 1})`;
         slotEl.innerHTML = `

@@ -62,15 +62,19 @@
           <span class="pill-icon">🌲</span>
           <span id="tree-count-label">나무 50/50</span>
         </div>
+        <div class="pill restoration-pill hidden" id="restoration-pill" title="반 전체 협동 미션: 모두 함께 나무를 심어 홍수 수위를 낮추세요! (내 대지 또는 자원 구역에 나무 씨앗 심기)">
+          <span class="pill-icon">🌳</span>
+          <span id="restoration-label">함께 숲 살리기 0/0</span>
+          <span class="restoration-bar"><span id="restoration-bar-fill" class="restoration-bar-fill"></span></span>
+        </div>
         <div class="pill peace-pill" title="평화 협동 모드: 플레이어 간 공격(PVP) 불가">
           <span class="pill-icon">🛡️</span>
           <span>평화 모드</span>
         </div>
-        <button id="btn-goto-my-plot" class="pill player-pill my-plot-clickable" tabindex="-1" title="내 배정 대지로 즉시 순간이동 (단축키: H)">
+        <div id="btn-goto-my-plot" class="pill player-pill" title="내 배정 대지">
           <span class="pill-icon">📍</span>
           <span id="player-display">나의 대지 (#1)</span>
-          <span class="plot-shortcut-tag">귀환 [H]</span>
-        </button>
+        </div>
         <div class="pill fly-pill hidden" id="fly-mode-pill" title="비행 중 (F키로 비행 토글 / Space:상승 / Shift:하강)">
           <span class="pill-icon">✈️</span>
           <span>비행 중 (F)</span>
@@ -78,11 +82,20 @@
         <button id="btn-topbar-capture" class="capture-toggle-btn" tabindex="-1" title="관리자 전용: 현재 화면 캡처하여 내 컴퓨터에 자동 저장 (단축키: F2)">
           📸 캡처 (F2)
         </button>
+        <button id="btn-open-glass-artisan" class="glass-artisan-toggle-btn" tabindex="-1" title="유리 장인 공방 열기 (블록 교환)">
+          🪟 유리 장인
+        </button>
+        <button id="btn-open-trade" class="trade-toggle-btn" tabindex="-1" title="1:1 거래구역 열기 (자원 교환)">
+          🤝 거래구역
+        </button>
+        <button id="btn-open-arena" class="arena-toggle-btn" tabindex="-1" title="1:1 카드 투기장 열기 (가위바위보 배틀)">
+          ⚔️ 카드 투기장
+        </button>
         <button id="btn-open-shop" class="shop-toggle-btn" tabindex="-1" title="마을 종묘 상점 열기 (단축키: B)">
           🏪 상점 (B)
         </button>
-        <button id="btn-open-crafting" class="craft-toggle-btn" tabindex="-1" title="조합대 열기 (단축키: C 또는 E)">
-          🪑 조합/제작 (C)
+        <button id="btn-open-crafting" class="craft-toggle-btn" tabindex="-1" title="기본 제작 열기 (단축키: E)">
+          🔨 기본 제작 (E)
         </button>
         <button id="btn-toggle-dev" class="dev-toggle-btn" tabindex="-1" title="개발자 도구 (시간 조절 & 구역 초기화)">
           ⚙️ 개발자 도구
@@ -109,9 +122,10 @@
 
     <!-- 하단 생존 게이지 & 핫바 -->
     <footer id="bottom-controls">
-      <!-- 생존 상태 (하트 체력) -->
+      <!-- 생존 상태 (하트 체력 & 산소 게이지) -->
       <div id="survival-bar">
         <div id="hearts-container" title="체력 (HP)"></div>
+        <div id="oxygen-container" class="oxygen-container hidden" title="산소 (Oxygen)"></div>
       </div>
 
       <!-- 마인크래프트 핫바 (블록 슬롯) -->

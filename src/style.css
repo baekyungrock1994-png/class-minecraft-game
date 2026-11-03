@@ -434,6 +434,84 @@ html, body {
   background: linear-gradient(135deg, #10b981, #047857);
 }
 
+.glass-artisan-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.glass-artisan-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.6);
+  background: linear-gradient(135deg, #38bdf8, #0284c7);
+}
+
+.trade-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #d97706, #b45309);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.trade-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(217, 119, 6, 0.6);
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.arena-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #dc2626, #991b1b);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.arena-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.6);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
 .capture-toggle-btn {
   display: flex;
   align-items: center;
@@ -543,13 +621,24 @@ html, body {
 /* 생존 바 (하트 & 산소) */
 #survival-bar {
   display: flex;
-  justify-content: flex-start;
+  justify-content: space-between;
+  align-items: center;
   width: 100%;
   max-width: 530px;
   padding: 0 4px;
 }
 
 #hearts-container {
+  display: flex;
+  gap: 3px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 4px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-glass);
+}
+
+#oxygen-container {
   display: flex;
   gap: 3px;
   background: rgba(15, 23, 42, 0.7);
@@ -3787,3 +3876,35 @@ kbd {
 
 
 
+
+/* 반 전체 협동 미션: 함께 숲 살리기 진행도 */
+.restoration-pill {
+  background: #064e3b !important;
+  border-color: #34d399 !important;
+  color: #a7f3d0 !important;
+  font-weight: 800;
+  animation: restoration-glow 2s ease-in-out infinite;
+}
+
+.restoration-bar {
+  display: inline-block;
+  width: 64px;
+  height: 7px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #10b981;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.restoration-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #a3e635);
+  transition: width 0.6s ease;
+}
+
+@keyframes restoration-glow {
+  0%, 100% { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+  50% { box-shadow: 0 0 14px rgba(52, 211, 153, 0.55); }
+}

@@ -12,6 +12,10 @@ export enum BlockType {
   CHEST = 10,
   IRON_BLOCK = 11,
   WOOD_STAIR = 12,
+  LADDER = 13,
+  GLASS = 14,
+  DOOR = 15,
+  FENCE = 16,
 }
 
 // 아이템 전용 (인벤토리 및 조합 재료)
@@ -133,16 +137,55 @@ export const BLOCK_METAS: Record<BlockType, BlockMeta> = {
     iconBg: "linear-gradient(135deg, #d4a373, #a26938)",
     emoji: "🪜",
   },
+  [BlockType.LADDER]: {
+    id: BlockType.LADDER,
+    name: "사다리",
+    color: 0x92400e,
+    transparent: true,
+    opacity: 0.95,
+    iconBg: "linear-gradient(135deg, #b45309, #78350f)",
+    emoji: "🪜",
+  },
+  [BlockType.GLASS]: {
+    id: BlockType.GLASS,
+    name: "유리 블록",
+    color: 0xe0f2fe,
+    transparent: true,
+    opacity: 0.55,
+    iconBg: "rgba(224, 242, 254, 0.7)",
+    emoji: "🪟",
+  },
+  [BlockType.DOOR]: {
+    id: BlockType.DOOR,
+    name: "나무 문",
+    color: 0x854d0e,
+    transparent: true,
+    opacity: 0.95,
+    iconBg: "linear-gradient(135deg, #92400e, #78350f)",
+    emoji: "🚪",
+  },
+  [BlockType.FENCE]: {
+    id: BlockType.FENCE,
+    name: "침입 방지 울타리",
+    color: 0x78350f,
+    transparent: true,
+    opacity: 0.95,
+    iconBg: "linear-gradient(135deg, #a16207, #78350f)",
+    emoji: "🚧",
+  },
 };
 
 export enum ToolType {
   NONE = 'NONE',
   WOOD_PICKAXE = 'WOOD_PICKAXE',
   STONE_PICKAXE = 'STONE_PICKAXE',
+  IRON_PICKAXE = 'IRON_PICKAXE',
   WOOD_AXE = 'WOOD_AXE',
   STONE_AXE = 'STONE_AXE',
+  IRON_AXE = 'IRON_AXE',
   WOOD_SHOVEL = 'WOOD_SHOVEL',
   STONE_SHOVEL = 'STONE_SHOVEL',
+  IRON_SHOVEL = 'IRON_SHOVEL',
 }
 
 export interface ToolMeta {
@@ -181,7 +224,20 @@ export const STONE_SHOVEL_ICON = `<svg class="shovel-icon" viewBox="0 0 16 16" w
   <rect x="1" y="13" width="2" height="2" fill="#475569"/>
 </svg>`;
 
-// 마인크래프트 원작 내구도: 나무=59, 돌=131
+export const IRON_SHOVEL_ICON = `<svg class="shovel-icon" viewBox="0 0 16 16" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" style="image-rendering:pixelated;display:inline-block;vertical-align:middle;filter:drop-shadow(1px 1px 0px rgba(0,0,0,0.4));">
+  <rect x="13" y="1" width="2" height="1" fill="#cbd5e1"/>
+  <rect x="14" y="2" width="1" height="2" fill="#cbd5e1"/>
+  <rect x="12" y="3" width="2" height="1" fill="#cbd5e1"/>
+  <rect x="10" y="4" width="2" height="2" fill="#92400e"/>
+  <rect x="8" y="6" width="2" height="2" fill="#92400e"/>
+  <rect x="6" y="8" width="2" height="2" fill="#92400e"/>
+  <rect x="5" y="9" width="2" height="2" fill="#b45309"/>
+  <rect x="3" y="11" width="3" height="3" fill="#f8fafc"/>
+  <rect x="2" y="12" width="3" height="3" fill="#ffffff"/>
+  <rect x="1" y="13" width="2" height="2" fill="#94a3b8"/>
+</svg>`;
+
+// 마인크래프트 원작 내구도: 나무=59, 돌=131, 철(무한)=Infinity
 export const TOOL_METAS: Record<ToolType, ToolMeta> = {
   [ToolType.NONE]: {
     type: ToolType.NONE,
@@ -196,7 +252,7 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "나무 곡괭이",
     emoji: "⛏️",
     maxDurability: 59,
-    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK],
+    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK, BlockType.GLASS],
     speedMultiplier: 3.5,
   },
   [ToolType.STONE_PICKAXE]: {
@@ -204,15 +260,23 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "돌 곡괭이",
     emoji: "⛏️",
     maxDurability: 131,
-    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK],
+    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK, BlockType.GLASS],
     speedMultiplier: 6.0,
+  },
+  [ToolType.IRON_PICKAXE]: {
+    type: ToolType.IRON_PICKAXE,
+    name: "무한 철 곡괭이",
+    emoji: "⛏️✨",
+    maxDurability: Infinity,
+    effectiveBlocks: [BlockType.STONE, BlockType.MAGMA, BlockType.IRON_BLOCK, BlockType.GLASS],
+    speedMultiplier: 10.0,
   },
   [ToolType.WOOD_AXE]: {
     type: ToolType.WOOD_AXE,
     name: "나무 도끼",
     emoji: "🪓",
     maxDurability: 59,
-    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR],
+    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR, BlockType.DOOR, BlockType.FENCE, BlockType.LADDER],
     speedMultiplier: 4.0,
   },
   [ToolType.STONE_AXE]: {
@@ -220,8 +284,16 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     name: "돌 도끼",
     emoji: "🪓",
     maxDurability: 131,
-    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR],
+    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR, BlockType.DOOR, BlockType.FENCE, BlockType.LADDER],
     speedMultiplier: 6.5,
+  },
+  [ToolType.IRON_AXE]: {
+    type: ToolType.IRON_AXE,
+    name: "무한 철 도끼",
+    emoji: "🪓✨",
+    maxDurability: Infinity,
+    effectiveBlocks: [BlockType.WOOD, BlockType.PLANK, BlockType.CRAFTING_TABLE, BlockType.WOOD_STAIR, BlockType.DOOR, BlockType.FENCE, BlockType.LADDER],
+    speedMultiplier: 10.0,
   },
   [ToolType.WOOD_SHOVEL]: {
     type: ToolType.WOOD_SHOVEL,
@@ -238,6 +310,14 @@ export const TOOL_METAS: Record<ToolType, ToolMeta> = {
     maxDurability: 131,
     effectiveBlocks: [BlockType.DIRT, BlockType.GRASS],
     speedMultiplier: 6.0,
+  },
+  [ToolType.IRON_SHOVEL]: {
+    type: ToolType.IRON_SHOVEL,
+    name: "무한 철 삽",
+    emoji: IRON_SHOVEL_ICON,
+    maxDurability: Infinity,
+    effectiveBlocks: [BlockType.DIRT, BlockType.GRASS],
+    speedMultiplier: 10.0,
   },
 };
 
@@ -256,6 +336,10 @@ export const BLOCK_BREAK_TIMES: Record<BlockType, number> = {
   [BlockType.CHEST]: 1.5,
   [BlockType.IRON_BLOCK]: 4.0,
   [BlockType.WOOD_STAIR]: 1.4,
+  [BlockType.LADDER]: 0.4,
+  [BlockType.GLASS]: 0.3,
+  [BlockType.DOOR]: 1.2,
+  [BlockType.FENCE]: 1.2,
 };
 
 // 월드 기본 규격

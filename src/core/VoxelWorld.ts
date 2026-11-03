@@ -164,6 +164,8 @@ export class VoxelWorld {
     this.sharedMaterial = new THREE.MeshLambertMaterial({
       map: blockAtlas,
       vertexColors: true,
+      transparent: true,
+      alphaTest: 0.15,
     });
     this.scene.add(this.townChunkGroup);
     this.scene.add(this.resourceChunkGroup);
@@ -571,6 +573,41 @@ export class VoxelWorld {
     shopSignGroup.add(sSprite);
     shopSignGroup.position.set(-5, 4.0, 43.5);
     this.plotSignsGroup.add(shopSignGroup);
+
+    // 4-2. 유리 장인 공방 입간판
+    const artisanSignGroup = new THREE.Group();
+    const artisanPost = new THREE.Mesh(shopPostGeo, shopPostMat);
+    artisanPost.position.set(0, 0.65, 0);
+    artisanSignGroup.add(artisanPost);
+
+    const aCanvas = document.createElement('canvas');
+    aCanvas.width = 320;
+    aCanvas.height = 160;
+    const aCtx = aCanvas.getContext('2d')!;
+    aCtx.fillStyle = '#bae6fd';
+    aCtx.fillRect(0, 0, 320, 160);
+    aCtx.strokeStyle = '#0284c7';
+    aCtx.lineWidth = 4;
+    aCtx.strokeRect(2, 2, 316, 156);
+    aCtx.textAlign = 'center';
+    aCtx.textBaseline = 'middle';
+    aCtx.font = '900 38px sans-serif';
+    aCtx.fillStyle = '#0369a1';
+    aCtx.fillText(`🪟 유리 장인`, 160, 52);
+    aCtx.font = 'bold 24px sans-serif';
+    aCtx.fillStyle = '#075985';
+    aCtx.fillText(`교환비 1:2 (우클릭)`, 160, 112);
+
+    const aTexture = new THREE.CanvasTexture(aCanvas);
+    aTexture.magFilter = THREE.NearestFilter;
+    aTexture.minFilter = THREE.NearestFilter;
+    const aSpriteMat = new THREE.SpriteMaterial({ map: aTexture, depthTest: true });
+    const aSprite = new THREE.Sprite(aSpriteMat);
+    aSprite.scale.set(2.4, 1.2, 1.0);
+    aSprite.position.set(0, 1.6, 0);
+    artisanSignGroup.add(aSprite);
+    artisanSignGroup.position.set(5, 4.0, 43.5);
+    this.plotSignsGroup.add(artisanSignGroup);
   }
 
   public getPlotAt(x: number, z: number): PlotInfo | null {
@@ -611,6 +648,10 @@ export class VoxelWorld {
       if (this.isShopStructure(ix, iy, iz)) {
         return true;
       }
+      // 공원 유리 장인 공방 구조체 보호
+      if (this.isGlassArtisanStructure(ix, iy, iz)) {
+        return true;
+      }
     }
 
     // 3. 자원 구역 (resource): 마을 복귀 신성한 제단 (x: -3~+3, z: -7~-1, y: 0~8) 파괴 불가
@@ -642,6 +683,17 @@ export class VoxelWorld {
     const iy = Math.floor(y);
     const iz = Math.floor(z);
     return ix >= -7 && ix <= -3 && iz >= 43 && iz <= 47 && iy >= 4 && iy <= 8;
+  }
+
+  /**
+   * 해당 좌표가 마을 유리 장인의 공방 구조체인지 검사
+   */
+  public isGlassArtisanStructure(x: number, y: number, z: number): boolean {
+    if (this.currentWorldType !== 'town') return false;
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const iz = Math.floor(z);
+    return ix >= 3 && ix <= 7 && iz >= 43 && iz <= 47 && iy >= 4 && iy <= 8;
   }
 
   /**
@@ -927,6 +979,32 @@ export class VoxelWorld {
     }
     this.townBlocks.set(this.getKey(-6, 6, 45), BlockType.LEAF);
     this.townBlocks.set(this.getKey(-4, 6, 45), BlockType.LEAF);
+
+    // 7) 마을 공원 유리 장인의 공방 (Glass Artisan Workshop) 건축 (x: 3~7, z: 43~47)
+    for (let x = 3; x <= 7; x++) {
+      for (let z = 43; z <= 47; z++) {
+        this.townBlocks.set(this.getKey(x, 4, z), BlockType.PLANK);
+      }
+    }
+    // 작업대 및 유리 진열 카운터
+    for (let x = 4; x <= 6; x++) {
+      this.townBlocks.set(this.getKey(x, 5, 45), BlockType.GLASS);
+    }
+    for (const sx of [4, 6]) {
+      for (const sz of [44, 46]) {
+        this.townBlocks.set(this.getKey(sx, 5, sz), BlockType.WOOD);
+        this.townBlocks.set(this.getKey(sx, 6, sz), BlockType.WOOD);
+        this.townBlocks.set(this.getKey(sx, 7, sz), BlockType.WOOD);
+      }
+    }
+    for (let x = 3; x <= 7; x++) {
+      for (let z = 43; z <= 47; z++) {
+        const isEdge = (x === 3 || x === 7 || z === 43 || z === 47);
+        this.townBlocks.set(this.getKey(x, 8, z), isEdge ? BlockType.PLANK : BlockType.GLASS);
+      }
+    }
+    this.townBlocks.set(this.getKey(4, 6, 45), BlockType.GLASS);
+    this.townBlocks.set(this.getKey(6, 6, 45), BlockType.GLASS);
 
     // 5-2. 우물 4개 모서리 원목 기둥 (x: -1, 2 / z: 50, 53, Y=5~7)
     const wellPillars = [
@@ -1224,7 +1302,7 @@ export class VoxelWorld {
    * 대재앙 마그마 솟구침
    */
   public triggerMagmaEruption(): void {
-    if (this.currentWorldType !== 'town') return;
+    // 플레이어가 자원 구역에 있어도 평지 마을(townBlocks)에 마그마가 분출되도록 현재 월드와 무관하게 처리
 
     const centers = [
       { x: 0, z: 0 },
@@ -1274,7 +1352,7 @@ export class VoxelWorld {
       }
     });
 
-    this.rebuildAllChunks();
+    this.rebuildAllChunksForWorld('town');
   }
 
   public clearMagmaEruption(): void {
@@ -1288,7 +1366,7 @@ export class VoxelWorld {
       }
     }
     this.eruptedMagmaKeys.clear();
-    this.rebuildAllChunks();
+    this.rebuildAllChunksForWorld('town');
   }
 
   /**

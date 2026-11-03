@@ -6,9 +6,9 @@ import { BlockType } from './Constants.ts';
  * 마인크래프트 정통 도트 그래픽 프로시저럴 텍스처 아틀라스 생성기
  */
 
-export const ATLAS_GRID = 4;
+export const ATLAS_GRID = 8;
 export const TILE_PIXELS = 32;
-export const ATLAS_SIZE = ATLAS_GRID * TILE_PIXELS; // 128x128
+export const ATLAS_SIZE = ATLAS_GRID * TILE_PIXELS; // 256x256
 
 export enum TileIndex {
   GRASS_TOP = 0,
@@ -27,6 +27,10 @@ export enum TileIndex {
   CHEST_FRONT = 13,
   CHEST_SIDE = 14,
   IRON_BLOCK = 15,
+  GLASS = 16,
+  LADDER = 17,
+  DOOR = 18,
+  FENCE = 19,
 }
 
 export function createBlockTextureAtlas(): THREE.CanvasTexture {
@@ -35,53 +39,90 @@ export function createBlockTextureAtlas(): THREE.CanvasTexture {
   canvas.height = ATLAS_SIZE;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 
+  const getPos = (idx: number) => ({
+    x: (idx % ATLAS_GRID) * TILE_PIXELS,
+    y: Math.floor(idx / ATLAS_GRID) * TILE_PIXELS,
+  });
+
   // 1. 타일 0: GRASS_TOP (잔디 윗면)
-  drawGrassTop(ctx, 0 * TILE_PIXELS, 0 * TILE_PIXELS);
+  let p = getPos(TileIndex.GRASS_TOP);
+  drawGrassTop(ctx, p.x, p.y);
 
   // 2. 타일 1: GRASS_SIDE (잔디 옆면 - 위쪽 풀 지그재그 + 아래쪽 흙)
-  drawGrassSide(ctx, 1 * TILE_PIXELS, 0 * TILE_PIXELS);
+  p = getPos(TileIndex.GRASS_SIDE);
+  drawGrassSide(ctx, p.x, p.y);
 
   // 3. 타일 2: DIRT (흙 블록)
-  drawDirt(ctx, 2 * TILE_PIXELS, 0 * TILE_PIXELS);
+  p = getPos(TileIndex.DIRT);
+  drawDirt(ctx, p.x, p.y);
 
   // 4. 타일 3: STONE (돌 블록 - 바위 균열과 질감)
-  drawStone(ctx, 3 * TILE_PIXELS, 0 * TILE_PIXELS);
+  p = getPos(TileIndex.STONE);
+  drawStone(ctx, p.x, p.y);
 
   // 5. 타일 4: WOOD_SIDE (참나무 원목 옆면 - 세로 껍질 결)
-  drawWoodSide(ctx, 0 * TILE_PIXELS, 1 * TILE_PIXELS);
+  p = getPos(TileIndex.WOOD_SIDE);
+  drawWoodSide(ctx, p.x, p.y);
 
   // 6. 타일 5: WOOD_TOP (참나무 원목 윗면 - 둥근 나이테)
-  drawWoodTop(ctx, 1 * TILE_PIXELS, 1 * TILE_PIXELS);
+  p = getPos(TileIndex.WOOD_TOP);
+  drawWoodTop(ctx, p.x, p.y);
 
   // 7. 타일 6: PLANK (가공 목재 - 4개 판자 가로선 및 못 자국)
-  drawPlank(ctx, 2 * TILE_PIXELS, 1 * TILE_PIXELS);
+  p = getPos(TileIndex.PLANK);
+  drawPlank(ctx, p.x, p.y);
 
   // 8. 타일 7: LEAF (나뭇잎 - 풍성한 잎사귀 패턴)
-  drawLeaf(ctx, 3 * TILE_PIXELS, 1 * TILE_PIXELS);
+  p = getPos(TileIndex.LEAF);
+  drawLeaf(ctx, p.x, p.y);
 
   // 9. 타일 8: CRAFTING_TOP (조합대 윗면 - 3x3 격자 및 도구)
-  drawCraftingTop(ctx, 0 * TILE_PIXELS, 2 * TILE_PIXELS);
+  p = getPos(TileIndex.CRAFTING_TOP);
+  drawCraftingTop(ctx, p.x, p.y);
 
   // 10. 타일 9: CRAFTING_SIDE (조합대 옆면 - 서랍장 및 공구)
-  drawCraftingSide(ctx, 1 * TILE_PIXELS, 2 * TILE_PIXELS);
+  p = getPos(TileIndex.CRAFTING_SIDE);
+  drawCraftingSide(ctx, p.x, p.y);
 
   // 11. 타일 10: MAGMA (마그마 블록 - 화산암 균열 사이로 흐르는 불타는 용암)
-  drawMagma(ctx, 2 * TILE_PIXELS, 2 * TILE_PIXELS);
+  p = getPos(TileIndex.MAGMA);
+  drawMagma(ctx, p.x, p.y);
 
   // 12. 타일 11: BEDROCK (기반암 - 파괴 불가 단단한 암반)
-  drawBedrock(ctx, 3 * TILE_PIXELS, 2 * TILE_PIXELS);
+  p = getPos(TileIndex.BEDROCK);
+  drawBedrock(ctx, p.x, p.y);
 
   // 13. 타일 12: CHEST_TOP (보관 상자 윗면)
-  drawChestTop(ctx, 0 * TILE_PIXELS, 3 * TILE_PIXELS);
+  p = getPos(TileIndex.CHEST_TOP);
+  drawChestTop(ctx, p.x, p.y);
 
   // 14. 타일 13: CHEST_FRONT (보관 상자 앞면 - 중앙 잠금장치 래치)
-  drawChestFront(ctx, 1 * TILE_PIXELS, 3 * TILE_PIXELS);
+  p = getPos(TileIndex.CHEST_FRONT);
+  drawChestFront(ctx, p.x, p.y);
 
   // 15. 타일 14: CHEST_SIDE (보관 상자 옆면/뒷면)
-  drawChestSide(ctx, 2 * TILE_PIXELS, 3 * TILE_PIXELS);
+  p = getPos(TileIndex.CHEST_SIDE);
+  drawChestSide(ctx, p.x, p.y);
 
   // 16. 타일 15: IRON_BLOCK (단단하고 번쩍이는 철 블록)
-  drawIronBlock(ctx, 3 * TILE_PIXELS, 3 * TILE_PIXELS);
+  p = getPos(TileIndex.IRON_BLOCK);
+  drawIronBlock(ctx, p.x, p.y);
+
+  // 17. 타일 16: GLASS (반투명 창문 유리)
+  p = getPos(TileIndex.GLASS);
+  drawGlass(ctx, p.x, p.y);
+
+  // 18. 타일 17: LADDER (나무 사다리)
+  p = getPos(TileIndex.LADDER);
+  drawLadder(ctx, p.x, p.y);
+
+  // 19. 타일 18: DOOR (나무 문)
+  p = getPos(TileIndex.DOOR);
+  drawDoor(ctx, p.x, p.y);
+
+  // 20. 타일 19: FENCE (침입 방지 울타리)
+  p = getPos(TileIndex.FENCE);
+  drawFence(ctx, p.x, p.y);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
@@ -138,6 +179,18 @@ export function getTileIndexForBlockFace(blockType: BlockType, faceDirY: number)
 
     case BlockType.WOOD_STAIR:
       return TileIndex.PLANK;
+
+    case BlockType.GLASS:
+      return TileIndex.GLASS;
+
+    case BlockType.LADDER:
+      return TileIndex.LADDER;
+
+    case BlockType.DOOR:
+      return TileIndex.DOOR;
+
+    case BlockType.FENCE:
+      return TileIndex.FENCE;
 
     default:
       return TileIndex.STONE;
@@ -612,4 +665,112 @@ function drawIronBlock(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
   ctx.fillStyle = '#ffffff';
   setPixel(ctx, ox + 12, oy + 12, '#ffffff', 2);
   setPixel(ctx, ox + 16, oy + 14, '#ffffff', 2);
+}
+
+// 17. 유리 블록 (마인크래프트 원작 스타일의 투명 창문 및 대각선 빛 반사 광택)
+function drawGlass(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  // 테두리 프레임 (밝은 하늘색-흰색)
+  ctx.fillStyle = '#bae6fd';
+  ctx.fillRect(ox, oy, 32, 2);
+  ctx.fillRect(ox, oy, 2, 32);
+  ctx.fillRect(ox, oy + 30, 32, 2);
+  ctx.fillRect(ox + 30, oy, 2, 32);
+
+  // 내부 옅은 투명 유리 배경
+  ctx.fillStyle = 'rgba(224, 242, 254, 0.45)';
+  ctx.fillRect(ox + 2, oy + 2, 28, 28);
+
+  // 대각선 광택 하이라이트 줄무늬 1
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 8; i++) {
+    setPixel(ctx, ox + 6 + i * 2, oy + 6 + i * 2, '#ffffff', 2);
+  }
+  // 대각선 광택 하이라이트 줄무늬 2
+  for (let i = 0; i < 4; i++) {
+    setPixel(ctx, ox + 18 + i * 2, oy + 18 + i * 2, '#ffffff', 2);
+  }
+}
+
+// 18. 나무 사다리 (사다리 기둥 2개와 가로 디딤판 발판들)
+function drawLadder(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  // 좌우 세로 기둥 (가공 목재 기둥)
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(ox + 2, oy, 4, 32);
+  ctx.fillRect(ox + 26, oy, 4, 32);
+
+  ctx.fillStyle = '#b45309';
+  ctx.fillRect(ox + 4, oy, 2, 32);
+  ctx.fillRect(ox + 28, oy, 2, 32);
+
+  // 가로 발판 4단
+  const rungs = [4, 12, 20, 28];
+  for (const ry of rungs) {
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(ox + 6, oy + ry, 20, 3);
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(ox + 6, oy + ry, 20, 1);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(ox + 6, oy + ry + 2, 20, 1);
+  }
+}
+
+// 19. 나무 문 (클래식 오크 도어 패널 & 손잡이)
+function drawDoor(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  // 베이스 목재
+  ctx.fillStyle = '#a16207';
+  ctx.fillRect(ox, oy, 32, 32);
+
+  // 외곽 프레임
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(ox, oy, 32, 2);
+  ctx.fillRect(ox, oy + 30, 32, 2);
+  ctx.fillRect(ox, oy, 2, 32);
+  ctx.fillRect(ox + 30, oy, 2, 32);
+
+  // 위쪽 창/오목 패널
+  ctx.fillStyle = '#713f12';
+  ctx.fillRect(ox + 4, oy + 4, 10, 10);
+  ctx.fillRect(ox + 18, oy + 4, 10, 10);
+
+  // 아래쪽 오목 패널
+  ctx.fillRect(ox + 4, oy + 18, 10, 10);
+  ctx.fillRect(ox + 18, oy + 18, 10, 10);
+
+  // 패널 하이라이트
+  ctx.fillStyle = '#ca8a04';
+  ctx.fillRect(ox + 5, oy + 5, 8, 1);
+  ctx.fillRect(ox + 19, oy + 5, 8, 1);
+  ctx.fillRect(ox + 5, oy + 19, 8, 1);
+  ctx.fillRect(ox + 19, oy + 19, 8, 1);
+
+  // 문 손잡이 (철제 래치)
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(ox + 24, oy + 15, 3, 3);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(ox + 24, oy + 15, 1, 1);
+}
+
+// 20. 침입 방지 울타리 (세로 기둥 & 2단 가로 바)
+function drawFence(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
+  // 목재 바탕
+  ctx.fillStyle = '#92400e';
+  ctx.fillRect(ox + 4, oy, 6, 32);
+  ctx.fillRect(ox + 22, oy, 6, 32);
+
+  ctx.fillStyle = '#b45309';
+  ctx.fillRect(ox + 5, oy, 3, 32);
+  ctx.fillRect(ox + 23, oy, 3, 32);
+
+  // 가로 연결대 (상/하 2단)
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(ox, oy + 6, 32, 5);
+  ctx.fillRect(ox, oy + 20, 32, 5);
+
+  ctx.fillStyle = '#d97706';
+  ctx.fillRect(ox, oy + 6, 32, 1);
+  ctx.fillRect(ox, oy + 20, 32, 1);
+
+  ctx.fillStyle = '#451a03';
+  ctx.fillRect(ox, oy + 10, 32, 1);
+  ctx.fillRect(ox, oy + 24, 32, 1);
 }
