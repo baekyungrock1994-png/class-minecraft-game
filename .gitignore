@@ -9,6 +9,11 @@ dist/
 .env.local
 .env.*.local
 
+# Firebase CLI local cache/logs
+.firebase/
+firebase-debug.log
+database-debug.log
+
 # Editor directories and files
 .vscode/
 .idea/

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:login": "firebase login",
+    "firebase:deploy:rules": "firebase deploy --only database"
   },
   "dependencies": {
     "firebase": "^10.13.2",
@@ -14,6 +16,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.169.0",
+    "firebase-tools": "^15.34.2",
     "typescript": "^5.5.4",
     "vite": "^5.4.8"
   }
