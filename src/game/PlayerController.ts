@@ -1026,6 +1026,15 @@ export class PlayerController {
     }
 
     if (this.currentSelectedBlock === BlockType.AIR) return;
+
+    // [버그 수정]: 설치할 블록 타입을 미리 변수로 캡처해둔다.
+    // onBlockInteract 콜백 내부에서 hotbar.consumeResource()가 "마지막 1개"를 소모하면
+    // 선택된 슬롯이 즉시 비워지면서 onSelectChange → updatePlayerSelectedItem이 동기적으로 호출되어
+    // this.currentSelectedBlock이 AIR로 즉시 바뀌어버린다. 그 아래에서 this.currentSelectedBlock을
+    // 다시 읽어 setBlock을 호출하면 AIR(아무 효과 없음)가 설치되어, 네트워크로는 올바른 블록이
+    // 전파되어 다른 플레이어 눈에는 보이지만 내 화면에는 보이지 않는 현상이 발생했다.
+    const blockToPlace = this.currentSelectedBlock;
+
     const { x, y, z, normal } = this.targetBlock;
     const px = x + normal[0];
     const py = y + normal[1];
@@ -1043,11 +1052,11 @@ export class PlayerController {
     }
 
     if (this.onBlockInteract) {
-      const allowed = this.onBlockInteract({ x: px, y: py, z: pz, type: this.currentSelectedBlock, action: 'place' });
+      const allowed = this.onBlockInteract({ x: px, y: py, z: pz, type: blockToPlace, action: 'place' });
       if (!allowed) return;
     }
 
-    this.world.setBlock(px, py, pz, this.currentSelectedBlock);
+    this.world.setBlock(px, py, pz, blockToPlace);
     // setBlock 내부에서 해당 16x16 청크만 초고속 리빌드
 
     // 1인칭 팔 스윙 연출

@@ -67,7 +67,15 @@
     // 교사용 생성 마을 목록 보관함 (이름/PIN 기반 조회 및 복구)
     "teachers": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$teacherUid": {
+        ".write": "auth != null",
+        "rooms": {
+          ".write": "auth != null",
+          "$roomCode": {
+            ".write": "auth != null"
+          }
+        }
+      }
     }
   }
 }
