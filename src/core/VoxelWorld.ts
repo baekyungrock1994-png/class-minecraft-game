@@ -161,10 +161,15 @@ export class VoxelWorld {
     this.blocks = this.townBlocks;
 
     const blockAtlas = createBlockTextureAtlas();
+    // transparent: false + alphaTest: 땅/건물 블록은 대부분 완전 불투명이라
+    // "불투명 그리기 단계"에서 안정적으로 그려지도록 함 (울타리/사다리 등 뚫린 모양은
+    // alphaTest가 그대로 잘라내므로 정상 작동). 예전엔 transparent: true였는데,
+    // 그 때문에 땅 블록 전체가 물(대재앙 수면)과 같은 "반투명 그리기 단계"에 섞여서
+    // 카메라 각도에 따라 그려지는 순서가 뒤바뀌어 물이 보였다 안 보였다 하는 버그가 있었음
     this.sharedMaterial = new THREE.MeshLambertMaterial({
       map: blockAtlas,
       vertexColors: true,
-      transparent: true,
+      transparent: false,
       alphaTest: 0.15,
     });
     this.scene.add(this.townChunkGroup);
