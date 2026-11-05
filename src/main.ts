@@ -71,6 +71,9 @@ class GameApp {
   private disasterStatusBadge: HTMLElement;
   private waterHeightVal: HTMLElement;
   private waterHeightSlider: HTMLInputElement;
+  // true면 교사가 수위를 수동 고정한 상태 (학생들이 나무를 심어도 자동으로 수위가 바뀌지 않음)
+  private isWaterLevelOverridden: boolean = false;
+  private btnWaterAutoMode: HTMLButtonElement;
 
   // 개발자 비행(플라이) 모드 요소
   private btnToggleFly: HTMLButtonElement;
@@ -149,6 +152,7 @@ class GameApp {
     this.disasterStatusBadge = document.getElementById('disaster-status-badge')!;
     this.waterHeightVal = document.getElementById('water-height-val')!;
     this.waterHeightSlider = document.getElementById('water-height-slider') as HTMLInputElement;
+    this.btnWaterAutoMode = document.getElementById('btn-water-auto-mode') as HTMLButtonElement;
 
     // 개발자 비행 모드 요소
     this.btnToggleFly = document.getElementById('btn-toggle-fly') as HTMLButtonElement;
@@ -1024,12 +1028,29 @@ class GameApp {
 
     this.waterHeightSlider.addEventListener('input', () => {
       const val = parseFloat(this.waterHeightSlider.value);
+      this.isWaterLevelOverridden = true;
       this.applyWaterLevelLocally(val);
       // 교사가 수동으로 해수면 높이를 조절하면 학생 화면에도 실시간 브로드캐스트!
+      // (override=true: 학생들이 나무를 심어도 이 값을 그대로 유지)
       if (this.networkManager && this.networkManager.role === 'teacher') {
-        this.networkManager.sendWaterLevel(val);
+        this.networkManager.sendWaterLevel(val, true);
       }
     });
+
+    // 교사가 수동 고정한 수위를 다시 "숲 살리기" 진행도에 맞춰 자동으로 바뀌도록 전환
+    if (this.btnWaterAutoMode) {
+      this.btnWaterAutoMode.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.isWaterLevelOverridden = false;
+        if (this.restorationState && this.restorationState.active) {
+          this.applyRestorationWaterLevel();
+        }
+        if (this.networkManager && this.networkManager.role === 'teacher') {
+          this.networkManager.sendWaterLevel(this.targetWaterY, false);
+        }
+        this.showNotification('🌳 수위가 다시 "숲 살리기" 진행도(나무를 심은 수)에 맞춰 자동으로 조절됩니다.', '🌱');
+      });
+    }
 
     // 4. 개발자 비행(플라이) 모드 토글 버튼
     if (this.btnToggleFly) {
@@ -1117,7 +1138,7 @@ class GameApp {
     // 교사가 발동한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(true);
-      this.networkManager.sendWaterLevel(this.targetWaterY);
+      this.networkManager.sendWaterLevel(this.targetWaterY, false);
       // 반 전체 "숲 살리기" 공동 미션 시작
       this.networkManager.startRestoration(this.targetWaterY, 'disaster');
     }
@@ -1125,6 +1146,7 @@ class GameApp {
 
   public applyDisasterLocally(): void {
     this.isDeforestationFloodOverridden = false;
+    this.isWaterLevelOverridden = false;
     this.isDisasterActive = true;
     this.world.isDisasterActive = true;
     this.targetWaterY = 6.8; // 평지 Y=4 위로 2.8블록 차오름 (집 1층 수몰)
@@ -1150,7 +1172,7 @@ class GameApp {
     // 교사가 리셋한 경우 Firebase를 통해 모든 학생 화면에 실시간 전파!
     if (this.networkManager && this.networkManager.role === 'teacher') {
       this.networkManager.sendDisasterState(false);
-      this.networkManager.sendWaterLevel(1.0);
+      this.networkManager.sendWaterLevel(1.0, false);
       this.networkManager.cancelRestoration();
     }
   }
@@ -1158,6 +1180,7 @@ class GameApp {
   public applyPeaceLocally(silent: boolean = false): void {
     this.isDisasterActive = false;
     this.world.isDisasterActive = false;
+    this.isWaterLevelOverridden = false;
     this.targetWaterY = 1.0;
     this.world.disasterWaterLevel = 1.0;
     this.world.disasterWaterMesh.visible = false;
@@ -1187,6 +1210,7 @@ class GameApp {
   public triggerDeforestationFlood(fromNetwork: boolean = false): void {
     if (this.isDeforestationFloodTriggered) return;
     this.isDeforestationFloodTriggered = true;
+    this.isWaterLevelOverridden = false;
 
     // 반 전체 "숲 살리기" 공동 미션 시작 (모든 친구 화면에 홍수가 함께 발생)
     if (!fromNetwork && this.networkManager) {
@@ -1648,9 +1672,10 @@ class GameApp {
     };
 
     // 5-3. [지시사항 2]: 교사가 수동 조절한 해수면 높이 실시간 수신 (학생 화면에도 즉시 동기화)
-    this.networkManager.onWaterLevelChange = (level: number) => {
-      // 숲 살리기 미션 중에는 "함께 심은 나무 수"로 계산된 수위가 우선
-      if (this.restorationState && this.restorationState.active) {
+    this.networkManager.onWaterLevelChange = (level: number, override: boolean) => {
+      this.isWaterLevelOverridden = override;
+      // 교사가 수동 고정(override)한 게 아니라면, 숲 살리기 미션 중엔 "함께 심은 나무 수"로 계산된 수위가 우선
+      if (!override && this.restorationState && this.restorationState.active) {
         this.applyRestorationWaterLevel();
         return;
       }
@@ -3178,7 +3203,14 @@ class GameApp {
       if (state.kind === 'deforestation' && !this.isDeforestationFloodTriggered) {
         this.triggerDeforestationFlood(true);
       }
-      this.applyRestorationWaterLevel();
+      // 새로 시작된 대재앙이면 직전 수동 고정 상태를 남겨두지 않고 자동 모드로 초기화
+      if (!prev || !prev.active || prev.startedAt !== state.startedAt) {
+        this.isWaterLevelOverridden = false;
+      }
+      // 교사가 수위를 수동으로 고정(override)해 둔 동안에는 나무 심기로 인한 자동 재계산을 건너뜀
+      if (!this.isWaterLevelOverridden) {
+        this.applyRestorationWaterLevel();
+      }
       this.updateRestorationHUD();
 
       const prevPlanted = prev && prev.active && prev.startedAt === state.startedAt ? (prev.planted || 0) : null;

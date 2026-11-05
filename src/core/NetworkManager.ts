@@ -134,7 +134,7 @@ export class NetworkManager {
   public onMyNameChanged?: (newName: string) => void;
   public onMyPlotChanged?: (newPlotId: number) => void;
   public onDisasterChange?: (isActive: boolean) => void;
-  public onWaterLevelChange?: (level: number) => void;
+  public onWaterLevelChange?: (level: number, override: boolean) => void;
   public onRestorationChange?: (state: RestorationState | null) => void;
   public onPendingRequestsUpdate?: (requests: JoinRequestData[]) => void;
   public onJoinApproved?: (plotId: number) => void;
@@ -906,7 +906,7 @@ export class NetworkManager {
       const data = snap.val();
       if (data && typeof data.level === 'number') {
         if (this.onWaterLevelChange) {
-          this.onWaterLevelChange(data.level);
+          this.onWaterLevelChange(data.level, data.override === true);
         }
       }
     });
@@ -929,7 +929,7 @@ export class NetworkManager {
     const restorationRef = ref(this.db, `rooms/${this.roomCode}/gameState/restoration`);
     const required = Math.max(1, Math.ceil((startLevel - RESTORATION_GROUND_LEVEL - 0.05) / RESTORATION_WATER_DROP));
     try {
-      await runTransaction(restorationRef, (cur: RestorationState | null) => {
+      const result = await runTransaction(restorationRef, (cur: RestorationState | null) => {
         if (cur && cur.active) return; // 이미 모두가 함께 미션 진행 중
         const next: RestorationState = {
           active: true,
@@ -942,6 +942,12 @@ export class NetworkManager {
         };
         return next;
       });
+      // 새 대재앙이 시작될 때마다 수위를 자동(숲 살리기 진행도 기반) 모드로 초기화
+      // (직전 대재앙에서 교사가 수동으로 고정해둔 수위가 남아있지 않도록)
+      if (result.committed) {
+        const waterLevelRef = ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`);
+        await set(waterLevelRef, { level: startLevel, override: false, timestamp: Date.now() });
+      }
     } catch (e) {
       console.warn('startRestoration error:', e);
     }
@@ -976,7 +982,7 @@ export class NetworkManager {
       if (result.committed && final && !final.active && final.completedAt && final.lastPlanterUid === uid) {
         // 마지막 나무를 심은 사람이 반 전체의 대재앙 상태를 해제 (새로 접속하는 친구도 평화 상태로 보이도록)
         await set(ref(this.db, `rooms/${this.roomCode}/gameState/disaster`), { isActive: false, timestamp: Date.now() });
-        await set(ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`), { level: 1.0, timestamp: Date.now() });
+        await set(ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`), { level: 1.0, override: false, timestamp: Date.now() });
       }
     } catch (e) {
       console.warn('contributeTree error:', e);
@@ -1338,12 +1344,15 @@ export class NetworkManager {
 
   /**
    * [지시사항 2]: 교사용 수동 조절 해수면 수위 실시간 전송 (학생 화면에도 즉시 동기화)
+   * override=true: 대재앙 중이어도 "숲 살리기" 자동 수위 계산을 무시하고 이 값을 그대로 유지
+   * override=false: 다시 학생들이 심은 나무 수에 따라 수위가 자동으로 계산되도록 전환
    */
-  public async sendWaterLevel(level: number): Promise<void> {
+  public async sendWaterLevel(level: number, override: boolean = true): Promise<void> {
     if (!this.roomCode || this.role !== 'teacher') return;
     const waterLevelRef = ref(this.db, `rooms/${this.roomCode}/gameState/waterLevel`);
     await set(waterLevelRef, {
       level: Number(level.toFixed(1)),
+      override,
       timestamp: Date.now()
     });
   }

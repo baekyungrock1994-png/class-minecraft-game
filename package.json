@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "firebase:login": "firebase login",
-    "firebase:deploy:rules": "firebase deploy --only database"
+    "firebase:deploy:rules": "firebase deploy --only database",
+    "firebase:deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "firebase:deploy": "npm run build && firebase deploy --only hosting,database"
   },
   "dependencies": {
     "firebase": "^10.13.2",
