@@ -203,7 +203,9 @@ class GameApp {
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
     // 2. 고성능 렌더러 (화면 캡처 저장을 위해 preserveDrawingBuffer 활성화)
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+    // logarithmicDepthBuffer: 넓은 평지 월드(160x160)를 높은 곳(비행 모드)에서 멀리 내려다볼 때
+    // 대재앙 홍수 수면(투명 평면)이 깊이 버퍼 정밀도 부족으로 바닥에 가려져 투명하게 보이던 문제 해결
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
