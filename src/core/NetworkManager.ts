@@ -67,6 +67,21 @@ export interface JoinRequestData {
 }
 
 /**
+ * 캐릭터를 직접 클릭해서 보내는 1:1 거래/카드 투기장 신청
+ * (받는 사람의 uid를 키로 사용, 한 번에 한 건만 유지)
+ */
+export interface InviteData {
+  type: 'trade' | 'arena';
+  roomId: number;
+  fromUid: string;
+  fromName: string;
+  toUid: string;
+  toName: string;
+  timestamp: number;
+  status: 'pending' | 'accepted' | 'declined';
+}
+
+/**
  * 반 전체가 함께하는 "숲 살리기" 공동 미션 상태 (홍수 중에만 active)
  * 누가 나무를 심든 planted가 1씩 올라가고, 모든 플레이어 화면의 수위가 함께 내려간다.
  */
@@ -142,6 +157,11 @@ export class NetworkManager {
   public onKicked?: () => void;
   public joinTimestamp: number = Date.now();
 
+  // 캐릭터 클릭 1:1 신청 (거래/카드 투기장)
+  public onIncomingInvite?: (invite: InviteData) => void;
+  public onInviteResponse?: (invite: InviteData) => void;
+  private inviteResponseUnsubscribe?: () => void;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
@@ -183,6 +203,17 @@ export class NetworkManager {
     const list: PlayerNetworkData[] = [];
     for (const [, remote] of this.remotePlayers.entries()) {
       list.push(remote.data);
+    }
+    return list;
+  }
+
+  /**
+   * 캐릭터 클릭 감지(레이캐스팅)용: 현재 접속 중인 원격 플레이어들의 3D 아바타와 이름/uid 목록
+   */
+  public getRemotePlayerEntries(): Array<{ uid: string; name: string; mesh: THREE.Group }> {
+    const list: Array<{ uid: string; name: string; mesh: THREE.Group }> = [];
+    for (const [uid, remote] of this.remotePlayers.entries()) {
+      list.push({ uid, name: remote.data.name, mesh: remote.mesh });
     }
     return list;
   }
@@ -918,6 +949,20 @@ export class NetworkManager {
         this.onRestorationChange(snap.exists() ? (snap.val() as RestorationState) : null);
       }
     });
+
+    // 11. [모든 플레이어] 캐릭터를 클릭해서 보낸 1:1 거래/카드 투기장 신청 실시간 수신
+    if (this.currentUser) {
+      const myInviteRef = ref(this.db, `rooms/${this.roomCode}/inviteRequests/${this.currentUser.uid}`);
+      onValue(myInviteRef, (snap) => {
+        if (!snap.exists()) return;
+        const invite = snap.val() as InviteData;
+        if (invite.status === 'pending' && invite.timestamp >= this.joinTimestamp - 5000) {
+          if (this.onIncomingInvite) {
+            this.onIncomingInvite(invite);
+          }
+        }
+      });
+    }
   }
 
   /**
@@ -1000,6 +1045,72 @@ export class NetworkManager {
     } catch (e) {
       console.warn('cancelRestoration error:', e);
     }
+  }
+
+  /**
+   * 캐릭터를 클릭해서 특정 상대에게 1:1 거래/카드 투기장 신청을 보냄
+   * (보내는 쪽이 roomId를 이미 점유한 상태에서 호출, 상대의 응답을 임시로 구독)
+   */
+  public async sendInvite(toUid: string, toName: string, type: 'trade' | 'arena', roomId: number): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+
+    if (this.inviteResponseUnsubscribe) {
+      this.inviteResponseUnsubscribe();
+      this.inviteResponseUnsubscribe = undefined;
+    }
+
+    const inviteRef = ref(this.db, `rooms/${this.roomCode}/inviteRequests/${toUid}`);
+    const invite: InviteData = {
+      type,
+      roomId,
+      fromUid: this.currentUser.uid,
+      fromName: this.playerName || (this.role === 'teacher' ? '선생님' : '플레이어'),
+      toUid,
+      toName,
+      timestamp: Date.now(),
+      status: 'pending'
+    };
+    await set(inviteRef, invite);
+    onDisconnect(inviteRef).remove();
+
+    // 상대방의 수락/거절 응답을 실시간으로 구독 (내가 보낸 신청이므로 내가 직접 구독)
+    const unsubscribe = onValue(inviteRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.val() as InviteData;
+      if (data.status === 'accepted' || data.status === 'declined') {
+        unsubscribe();
+        if (this.inviteResponseUnsubscribe === unsubscribe) {
+          this.inviteResponseUnsubscribe = undefined;
+        }
+        if (this.onInviteResponse) {
+          this.onInviteResponse(data);
+        }
+        remove(inviteRef).catch(() => { });
+      }
+    });
+    this.inviteResponseUnsubscribe = unsubscribe;
+  }
+
+  /**
+   * 받은 1:1 신청에 수락/거절로 응답
+   */
+  public async respondToInvite(accept: boolean): Promise<void> {
+    if (!this.roomCode || !this.currentUser) return;
+    const inviteRef = ref(this.db, `rooms/${this.roomCode}/inviteRequests/${this.currentUser.uid}`);
+    await update(inviteRef, { status: accept ? 'accepted' : 'declined' });
+  }
+
+  /**
+   * [보낸 쪽 전용] 상대 응답이 없어 시간 초과로 신청을 스스로 취소할 때 사용
+   */
+  public async cancelInvite(toUid: string): Promise<void> {
+    if (!this.roomCode) return;
+    if (this.inviteResponseUnsubscribe) {
+      this.inviteResponseUnsubscribe();
+      this.inviteResponseUnsubscribe = undefined;
+    }
+    const inviteRef = ref(this.db, `rooms/${this.roomCode}/inviteRequests/${toUid}`);
+    await remove(inviteRef).catch(() => { });
   }
 
   private handleIncomingBlockDelta(snap: DataSnapshot): void {

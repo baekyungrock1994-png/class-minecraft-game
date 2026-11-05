@@ -2538,6 +2538,96 @@ kbd {
 }
 
 /* =========================================================
+   캐릭터 클릭 1:1 거래/카드 투기장 신청 패널 & 알림 토스트
+   ========================================================= */
+.player-interact-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -100%);
+  z-index: 10001;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid #38bdf8;
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 18px rgba(56, 189, 248, 0.35);
+  backdrop-filter: blur(14px);
+  min-width: 200px;
+  animation: toastSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.player-panel-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.player-panel-close:hover {
+  color: #ffffff;
+}
+
+.player-panel-name {
+  font-size: 14px;
+  font-weight: 800;
+  color: #facc15;
+  margin-top: 2px;
+}
+
+.player-panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.player-panel-btn {
+  padding: 9px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 800;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  color: #ffffff;
+}
+
+.player-panel-btn.trade {
+  background: #d97706;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+}
+
+.player-panel-btn.trade:hover {
+  background: #b45309;
+  transform: translateY(-1px);
+}
+
+.player-panel-btn.arena {
+  background: #dc2626;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+
+.player-panel-btn.arena:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.invite-toast {
+  top: 130px;
+}
+
+/* =========================================================
    참여자 명단 모달 내 대기자 목록 스타일
    ========================================================= */
 .pending-section {

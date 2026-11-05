@@ -46,6 +46,8 @@ export class BattleManager {
   public onArenaRoomsUpdate?: (rooms: Record<number, { count: number; names: string[] }>) => void;
   public onGameResult?: (winnerSlot: 'p1' | 'p2' | 'DRAW', p1Bet: CardBet | null, p2Bet: CardBet | null) => void;
 
+  private lastRoomsSummary: Record<number, { count: number; names: string[] }> = {};
+
   constructor(db?: Database, roomCode?: string, user?: { uid: string }, playerName?: string) {
     this.db = db;
     this.roomCode = roomCode;
@@ -92,10 +94,20 @@ export class BattleManager {
         }
       }
 
+      this.lastRoomsSummary = summary;
       if (this.onArenaRoomsUpdate) {
         this.onArenaRoomsUpdate(summary);
       }
     });
+  }
+
+  /** 비어있는(참여 0명) 카드 투기장 번호 중 가장 빠른 번호를 반환 (없으면 null) */
+  public getFirstAvailableRoomId(): number | null {
+    for (let i = 1; i <= 10; i++) {
+      const info = this.lastRoomsSummary[i];
+      if (!info || info.count === 0) return i;
+    }
+    return null;
   }
 
   public async joinRoom(roomId: number): Promise<{ success: boolean; message?: string }> {

@@ -87,6 +87,8 @@ export class PlayerController {
   public onOpenChest?: (chestKey: string) => void;
   public onUseItem?: () => boolean; // 핫바 아이템(마을 귀환석 등) 우클릭 사용 콜백
   public onDropItem?: (all: boolean) => void; // Q 키로 손에 든 아이템 버리기 콜백
+  // 좌클릭 시 다른 플레이어 캐릭터를 조준 중이면 채굴 대신 호출 (true 반환 시 채굴 시작 취소)
+  public onCheckPlayerClick?: () => boolean;
   public onBowlInteract?: (action: 'scoop' | 'pour', x: number, y: number, z: number) => boolean; // [요구사항 12]: 바가지 물 상호작용
   public onOpenShop?: () => void; // 상점 열기 콜백
   public onOpenGlassArtisan?: () => void; // 유리 장인 공방 열기 콜백
@@ -297,6 +299,11 @@ export class PlayerController {
     window.addEventListener('mousedown', (e) => {
       if (!this.isLocked || this.isModalOpen) return;
       if (e.button === 0) {
+        // 다른 플레이어 캐릭터를 조준하고 있으면 채굴 대신 거래/카드 투기장 신청 패널을 띄움
+        if (this.onCheckPlayerClick && this.onCheckPlayerClick()) {
+          return;
+        }
+
         // [요구사항 12]: 바가지 들고 있을 때 좌클릭 우선 처리 (물 퍼올리기 / 붓기)
         if (this.currentSelectedItemType === 'BOWL_EMPTY' || this.currentSelectedItemType === 'BOWL_WATER') {
           const handled = this.handleBowlAction();

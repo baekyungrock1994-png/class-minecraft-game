@@ -328,6 +328,31 @@
     </div>
   </div>
 
+  <!-- 캐릭터를 클릭하면 머리 위에 뜨는 1:1 거래/카드 투기장 신청 패널 -->
+  <div id="player-interact-panel" class="player-interact-panel hidden">
+    <button id="btn-player-panel-close" class="player-panel-close" type="button" title="닫기">✕</button>
+    <div class="player-panel-name" id="player-panel-name">친구</div>
+    <div class="player-panel-actions">
+      <button id="btn-player-panel-trade" class="player-panel-btn trade" type="button">🤝 거래 신청</button>
+      <button id="btn-player-panel-arena" class="player-panel-btn arena" type="button">⚔️ 카드 투기장 신청</button>
+    </div>
+  </div>
+
+  <!-- 1:1 거래/카드 투기장 신청을 받았을 때 뜨는 실시간 알림 -->
+  <div id="invite-toast" class="join-request-toast invite-toast hidden">
+    <div class="toast-content">
+      <div class="toast-icon" id="invite-toast-icon">🤝</div>
+      <div class="toast-text-box">
+        <div class="toast-title" id="invite-toast-title">1:1 거래 신청</div>
+        <div class="toast-message" id="invite-toast-msg"><strong>친구</strong>님이 신청을 보냈습니다.</div>
+      </div>
+    </div>
+    <div class="toast-actions">
+      <button id="btn-invite-accept" class="toast-btn approve-btn" type="button">✅ 참여하기</button>
+      <button id="btn-invite-decline" class="toast-btn reject-btn" type="button">❌ 거절</button>
+    </div>
+  </div>
+
   <!-- 교실 마을 참가자 명단 및 닉네임/추방 관리 모달 -->
   <div id="player-list-modal" class="modal-backdrop hidden">
     <div class="modal-card player-list-card">

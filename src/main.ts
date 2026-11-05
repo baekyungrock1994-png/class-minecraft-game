@@ -5,7 +5,7 @@ import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
 import { ShopUI } from './ui/ShopUI.ts';
 import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS } from './core/Constants.ts';
-import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData, RestorationState, getRestorationWaterLevel } from './core/NetworkManager.ts';
+import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData, RestorationState, getRestorationWaterLevel, InviteData } from './core/NetworkManager.ts';
 import { ItemDropManager } from './game/ItemDropManager.ts';
 import { ChestManager } from './game/ChestManager.ts';
 import { TradeManager } from './game/TradeManager.ts';
@@ -39,6 +39,18 @@ class GameApp {
   private chestGrid: HTMLElement;
   private chestHotbarGrid: HTMLElement;
   private btnCloseChest: HTMLElement;
+
+  // 캐릭터 클릭 1:1 거래/카드 투기장 신청 패널 & 알림 토스트
+  private playerInteractPanel: HTMLElement;
+  private playerPanelNameEl: HTMLElement;
+  private inviteToast: HTMLElement;
+  private inviteToastIcon: HTMLElement;
+  private inviteToastTitle: HTMLElement;
+  private inviteToastMsg: HTMLElement;
+  private targetedPlayerUid: string | null = null;
+  private targetedPlayerName: string = '';
+  private targetedPlayerMesh: THREE.Object3D | null = null;
+  private pendingInviteTimeout?: number;
 
   // 채팅 쿨다운 (5초) 및 대재앙 평화모드 오버라이드
   private lastChatSendTime: number = 0;
@@ -194,6 +206,13 @@ class GameApp {
     this.chestGrid = document.getElementById('chest-grid')!;
     this.chestHotbarGrid = document.getElementById('chest-hotbar-grid')!;
     this.btnCloseChest = document.getElementById('btn-close-chest')!;
+
+    this.playerInteractPanel = document.getElementById('player-interact-panel')!;
+    this.playerPanelNameEl = document.getElementById('player-panel-name')!;
+    this.inviteToast = document.getElementById('invite-toast')!;
+    this.inviteToastIcon = document.getElementById('invite-toast-icon')!;
+    this.inviteToastTitle = document.getElementById('invite-toast-title')!;
+    this.inviteToastMsg = document.getElementById('invite-toast-msg')!;
 
     // 1. Three.js 기본 씬 & 카메라
     this.scene = new THREE.Scene();
@@ -543,6 +562,30 @@ class GameApp {
       }
       return true;
     };
+
+    // 캐릭터 클릭 1:1 거래/카드 투기장 신청
+    this.player.onCheckPlayerClick = () => this.tryInteractWithPlayer();
+
+    document.getElementById('btn-player-panel-close')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closePlayerInteractPanel();
+    });
+    document.getElementById('btn-player-panel-trade')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.requestSocialInvite('trade');
+    });
+    document.getElementById('btn-player-panel-arena')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.requestSocialInvite('arena');
+    });
+    document.getElementById('btn-invite-accept')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.respondToIncomingInvite(true);
+    });
+    document.getElementById('btn-invite-decline')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.respondToIncomingInvite(false);
+    });
 
     const headerModalButtons: Array<[string, () => void]> = [
       ['btn-open-glass-artisan', () => this.glassArtisanUI.open()],
@@ -1409,12 +1452,215 @@ class GameApp {
     this.battleManager.setNetwork(db, roomCode, user, name);
   }
 
+  /** 화면 중앙(조준점)이 다른 플레이어 캐릭터를 가리키고 있으면 신청 패널을 띄움 */
+  private tryInteractWithPlayer(): boolean {
+    if (this.isSocialModalOpen() || this.craftingUI.isOpen) return false;
+
+    const entries = this.networkManager.getRemotePlayerEntries();
+    if (entries.length === 0) return false;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    raycaster.far = 8;
+
+    let closest: { uid: string; name: string; mesh: THREE.Object3D; distance: number } | null = null;
+    for (const entry of entries) {
+      if (!entry.mesh.visible) continue;
+      const hits = raycaster.intersectObject(entry.mesh, true);
+      if (hits.length > 0 && (!closest || hits[0].distance < closest.distance)) {
+        closest = { uid: entry.uid, name: entry.name, mesh: entry.mesh, distance: hits[0].distance };
+      }
+    }
+
+    if (!closest) return false;
+    this.openPlayerInteractPanel(closest.uid, closest.name, closest.mesh);
+    return true;
+  }
+
+  private openPlayerInteractPanel(uid: string, name: string, mesh: THREE.Object3D): void {
+    this.targetedPlayerUid = uid;
+    this.targetedPlayerName = name;
+    this.targetedPlayerMesh = mesh;
+    this.playerPanelNameEl.textContent = name;
+    this.playerInteractPanel.classList.remove('hidden');
+    this.updatePlayerInteractPanelPosition();
+    this.player.setModalOpen(true);
+
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+  }
+
+  /** relock=false면 자동으로 1인칭 포인터락을 다시 요청하지 않음 (바로 다른 모달을 열 때 사용) */
+  private closePlayerInteractPanel(relock: boolean = true): void {
+    this.targetedPlayerUid = null;
+    this.targetedPlayerName = '';
+    this.targetedPlayerMesh = null;
+    this.playerInteractPanel.classList.add('hidden');
+    this.player.setModalOpen(false);
+    if (relock) {
+      this.requestPointerLockSafely();
+    }
+  }
+
+  /** 패널을 띄워둔 상대 캐릭터의 머리 위 화면 좌표로 패널 위치를 매 프레임 갱신 */
+  private updatePlayerInteractPanelPosition(): void {
+    if (!this.targetedPlayerMesh || this.playerInteractPanel.classList.contains('hidden')) return;
+    if (!this.targetedPlayerMesh.visible) {
+      this.closePlayerInteractPanel();
+      return;
+    }
+
+    const headPos = this.targetedPlayerMesh.position.clone();
+    headPos.y += 2.4;
+    const projected = headPos.project(this.camera);
+
+    if (projected.z > 1) {
+      // 카메라 뒤쪽으로 넘어감 (상대가 시야 밖으로 벗어남)
+      this.closePlayerInteractPanel();
+      return;
+    }
+
+    const screenX = (projected.x * 0.5 + 0.5) * window.innerWidth;
+    const screenY = (-projected.y * 0.5 + 0.5) * window.innerHeight;
+    this.playerInteractPanel.style.left = `${screenX}px`;
+    this.playerInteractPanel.style.top = `${screenY}px`;
+
+    const dist = this.camera.position.distanceTo(this.targetedPlayerMesh.position);
+    if (dist > 14) {
+      this.closePlayerInteractPanel();
+    }
+  }
+
+  /** 패널에서 "거래 신청" / "카드 투기장 신청" 버튼을 눌렀을 때: 빈 부스를 찾아 입장 후 상대에게 신청 전송 */
+  private async requestSocialInvite(type: 'trade' | 'arena'): Promise<void> {
+    const targetUid = this.targetedPlayerUid;
+    const targetName = this.targetedPlayerName;
+    if (!targetUid) return;
+    this.closePlayerInteractPanel(false);
+
+    const manager = type === 'trade' ? this.tradeManager : this.battleManager;
+    const roomId = manager.getFirstAvailableRoomId();
+    if (roomId === null) {
+      this.showNotification(
+        type === 'trade' ? '🚫 현재 모든 거래 부스가 사용 중입니다. 잠시 후 다시 시도해주세요.' : '🚫 현재 모든 투기장이 사용 중입니다. 잠시 후 다시 시도해주세요.',
+        '⚠️'
+      );
+      this.requestPointerLockSafely();
+      return;
+    }
+
+    const joinResult = await manager.joinRoom(roomId);
+    if (!joinResult.success) {
+      this.showNotification(joinResult.message || '부스 입장에 실패했습니다.', '⚠️');
+      this.requestPointerLockSafely();
+      return;
+    }
+
+    try {
+      await this.networkManager.sendInvite(targetUid, targetName, type, roomId);
+    } catch (err) {
+      console.warn('sendInvite failed:', err);
+      this.showNotification('⚠️ 신청 전송에 실패했습니다. 잠시 후 다시 시도해주세요.', '⚠️');
+      manager.leaveRoom();
+      this.requestPointerLockSafely();
+      return;
+    }
+
+    if (type === 'trade') {
+      this.player.isModalOpen = true;
+      this.tradeUI.open();
+    } else {
+      this.player.isModalOpen = true;
+      this.cardGameUI.open();
+    }
+
+    this.showNotification(`📨 ${targetName}님에게 ${type === 'trade' ? '거래' : '카드 투기장'} 신청을 보냈습니다! 응답을 기다리는 중...`, '⏳');
+
+    if (this.pendingInviteTimeout) {
+      window.clearTimeout(this.pendingInviteTimeout);
+    }
+    this.pendingInviteTimeout = window.setTimeout(() => {
+      this.showNotification(`⌛ ${targetName}님이 응답하지 않아 신청이 취소되었습니다.`, '😢');
+      manager.leaveRoom();
+      if (type === 'trade') {
+        this.tradeUI.close();
+      } else {
+        this.cardGameUI.close();
+      }
+      this.networkManager.cancelInvite(targetUid);
+    }, 30000);
+  }
+
+  /** 상대방이 보낸 1:1 신청 수신 시 알림 토스트 표시 */
+  private showIncomingInvite(invite: InviteData): void {
+    this.inviteToastIcon.textContent = invite.type === 'trade' ? '🤝' : '⚔️';
+    this.inviteToastTitle.textContent = invite.type === 'trade' ? '1:1 거래 신청' : '1:1 카드 투기장 신청';
+    this.inviteToastMsg.innerHTML = `<strong>${invite.fromName}</strong>님이 ${invite.type === 'trade' ? '거래' : '카드 투기장'}을 신청했습니다!`;
+    this.inviteToast.dataset.type = invite.type;
+    this.inviteToast.dataset.roomId = String(invite.roomId);
+    this.inviteToast.classList.remove('hidden');
+
+    // 마우스로 바로 버튼을 누를 수 있도록 1인칭 포인터락 해제
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+  }
+
+  /** 받은 신청에 수락/거절로 응답 */
+  private respondToIncomingInvite(accept: boolean): void {
+    const type = this.inviteToast.dataset.type as 'trade' | 'arena' | undefined;
+    const roomId = Number(this.inviteToast.dataset.roomId || 0);
+    this.inviteToast.classList.add('hidden');
+    this.networkManager.respondToInvite(accept);
+    if (!accept || !type || !roomId) {
+      this.requestPointerLockSafely();
+      return;
+    }
+
+    const manager = type === 'trade' ? this.tradeManager : this.battleManager;
+    manager.joinRoom(roomId).then((res) => {
+      if (!res.success) {
+        this.showNotification(res.message || '부스 입장에 실패했습니다.', '⚠️');
+        this.requestPointerLockSafely();
+        return;
+      }
+      this.player.isModalOpen = true;
+      if (type === 'trade') {
+        this.tradeUI.open();
+      } else {
+        this.cardGameUI.open();
+      }
+    });
+  }
+
+  /** 내가 보낸 신청에 대한 상대방의 수락/거절 응답 처리 */
+  private handleInviteResponse(invite: InviteData): void {
+    if (this.pendingInviteTimeout) {
+      window.clearTimeout(this.pendingInviteTimeout);
+      this.pendingInviteTimeout = undefined;
+    }
+    if (invite.status === 'accepted') {
+      this.showNotification(`✅ ${invite.toName}님이 신청을 수락했습니다!`, '🎉');
+    } else {
+      this.showNotification(`❌ ${invite.toName}님이 신청을 거절했습니다.`, '😢');
+      const manager = invite.type === 'trade' ? this.tradeManager : this.battleManager;
+      manager.leaveRoom();
+      if (invite.type === 'trade') {
+        this.tradeUI.close();
+      } else {
+        this.cardGameUI.close();
+      }
+    }
+  }
+
   public requestPointerLockSafely(): void {
     if (!this.hasGameStarted) return;
     if (this.player && this.player.isModalOpen) return;
     if (this.craftingUI && this.craftingUI.isOpen) return;
     if (this.isSocialModalOpen()) return;
     if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
+    if (this.playerInteractPanel && !this.playerInteractPanel.classList.contains('hidden')) return;
     if (document.pointerLockElement === this.renderer.domElement) return;
 
     if (!this.devPanel.classList.contains('hidden')) {
@@ -1439,6 +1685,10 @@ class GameApp {
 
     // 1. 캔버스 및 컨테이너 클릭 시 즉시 1인칭 조작 복귀
     canvas.addEventListener('click', () => {
+      if (this.playerInteractPanel && !this.playerInteractPanel.classList.contains('hidden')) {
+        this.closePlayerInteractPanel();
+        return;
+      }
       this.requestPointerLockSafely();
     });
 
@@ -1460,6 +1710,7 @@ class GameApp {
       if (this.craftingUI && this.craftingUI.isOpen) return;
       if (this.isSocialModalOpen()) return;
       if (this.chestModal && !this.chestModal.classList.contains('hidden')) return;
+      if (this.playerInteractPanel && !this.playerInteractPanel.classList.contains('hidden')) return;
       if (!this.devPanel.classList.contains('hidden')) return;
 
       const target = e.target as HTMLElement;
@@ -1474,7 +1725,10 @@ class GameApp {
         target.closest('#dev-panel') ||
         target.closest('#click-to-play') ||
         target.closest('#player-list-modal') ||
-        target.closest('#quick-chat-modal')
+        target.closest('#quick-chat-modal') ||
+        target.closest('#player-interact-panel') ||
+        target.closest('#invite-toast') ||
+        target.closest('#join-request-toast')
       ) {
         return;
       }
@@ -1552,6 +1806,9 @@ class GameApp {
         }
         if (!this.quickChatModal.classList.contains('hidden')) {
           this.closeQuickChat();
+        }
+        if (!this.playerInteractPanel.classList.contains('hidden')) {
+          this.closePlayerInteractPanel();
         }
       }
 
@@ -1687,6 +1944,14 @@ class GameApp {
     // 5-4. 반 전체 "숲 살리기" 공동 미션 실시간 수신
     this.networkManager.onRestorationChange = (state: RestorationState | null) => {
       this.handleRestorationChange(state);
+    };
+
+    // 5-5. 캐릭터 클릭으로 받은 1:1 거래/카드 투기장 신청 실시간 수신
+    this.networkManager.onIncomingInvite = (invite: InviteData) => {
+      this.showIncomingInvite(invite);
+    };
+    this.networkManager.onInviteResponse = (invite: InviteData) => {
+      this.handleInviteResponse(invite);
     };
 
     // 6. 긍정적 멘트 실시간 채팅 수신
@@ -2147,6 +2412,9 @@ class GameApp {
 
     // 찰랑거리는 물 복셀 파도 및 표면 광택 애니메이션 업데이트
     this.world.update(delta);
+
+    // 캐릭터 클릭 1:1 신청 패널이 열려 있으면 상대 머리 위치를 따라 화면 좌표 갱신
+    this.updatePlayerInteractPanelPosition();
 
     // [수정사항 3]: 시간 자동 흐름 시스템 삭제 - 항상 화창한 정오(낮) 유지
     // animate 루프에서 setTime을 계속 재호출하지 않고 초기 12.0 밝은 낮 상태 유지

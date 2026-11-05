@@ -42,11 +42,22 @@ export class TradeManager {
   public onRoomsListUpdate?: (rooms: Record<number, { count: number; names: string[] }>) => void;
   public onTradeExecute?: (myOffer: TradeOffer | null, partnerOffer: TradeOffer | null) => void;
 
+  private lastRoomsSummary: Record<number, { count: number; names: string[] }> = {};
+
   constructor(db?: Database, roomCode?: string, user?: { uid: string; displayName?: string | null }, playerName?: string) {
     this.db = db;
     this.roomCode = roomCode;
     this.currentUser = user;
     this.playerName = playerName || '플레이어';
+  }
+
+  /** 비어있는(참여 0명) 거래 부스 번호 중 가장 빠른 번호를 반환 (없으면 null) */
+  public getFirstAvailableRoomId(): number | null {
+    for (let i = 1; i <= 10; i++) {
+      const info = this.lastRoomsSummary[i];
+      if (!info || info.count === 0) return i;
+    }
+    return null;
   }
 
   public setNetwork(db: Database, roomCode: string, user: { uid: string; displayName?: string | null }, playerName: string): void {
@@ -88,6 +99,7 @@ export class TradeManager {
         }
       }
 
+      this.lastRoomsSummary = summary;
       if (this.onRoomsListUpdate) {
         this.onRoomsListUpdate(summary);
       }
