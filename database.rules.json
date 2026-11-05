@@ -2,79 +2,85 @@
   "rules": {
     "rooms": {
       "$roomCode": {
-        // 로그인한 사용자(익명 로그인 포함)만 해당 방에 접근 가능
+        // 로그인한 사용자(익명 로그인 포함)만 해당 방에 접근 가능 (읽기는 지금처럼 모두 허용)
         ".read": "auth != null",
 
         // 1. 방 메타데이터 (방 생성, 교사 관리)
+        // "마을 이어하기"는 UID가 아니라 비밀번호로 주인을 확인하는 방식이라
+        // UID 기준으로 제한하면 이어하기 기능이 깨지므로, 지금처럼 로그인한 사람 누구나 쓰기 가능하게 유지
         "meta": {
           ".write": "auth != null"
         },
 
-        // 2. 학생 입장 승인 대기열 (학생이 참가 신청/취소, 교사가 승인/거절)
+        // 2. 학생 입장 승인 대기열
+        // 학생은 자기 uid 항목만(신청/취소), 방을 만든 교사(hostUid)는 아무 학생 항목이나(승인/거절) 쓸 수 있음
         "joinRequests": {
-          ".write": "auth != null"
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('rooms/' + $roomCode + '/meta/hostUid').val() === auth.uid)"
+          }
         },
 
-        // 3. 플레이어 접속 상태 및 위치 (학생 위치 전송, 교사의 닉네임 수정 및 강퇴)
+        // 3. 플레이어 접속 상태 및 위치
+        // 본인은 자기 uid 항목만(위치/비행 등), 교사(hostUid)는 아무 학생 항목이나(닉네임 수정, 대지 변경, 강퇴)
         "players": {
-          ".write": "auth != null"
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('rooms/' + $roomCode + '/meta/hostUid').val() === auth.uid)"
+          }
         },
 
-        // 4. 강제 추방 목록 (교사가 등록, 학생이 확인)
+        // 4. 강제 추방 목록 — 교사(hostUid)만 등록 가능
         "kicked": {
-          ".write": "auth != null"
+          "$uid": {
+            ".write": "auth != null && root.child('rooms/' + $roomCode + '/meta/hostUid').val() === auth.uid"
+          }
         },
 
-        // 5. 블록 설치/파괴 델타 및 교사의 마을 리셋
+        // 5. 블록 설치/파괴 델타 — 학생이 자기 대지에 건축하는 핵심 기능이라 누구나 쓰기 가능 유지
+        //    (전체 삭제/리셋은 앱 코드에서 교사만 호출하도록 이미 제한되어 있음)
         "worldDeltas": {
           ".write": "auth != null"
         },
 
-        // 6. 특정 대지(구역) 초기화 이벤트
+        // 6. 특정 대지(구역) 초기화 이벤트 — 교사(hostUid)만
         "plotResetEvent": {
-          ".write": "auth != null"
+          ".write": "auth != null && root.child('rooms/' + $roomCode + '/meta/hostUid').val() === auth.uid"
         },
 
-        // 7. 실시간 긍정 채팅 메시지
+        // 7. 실시간 긍정 채팅 메시지 — 누구나 자기 메시지 전송
         "chats": {
           ".write": "auth != null"
         },
 
-        // 8. 전역 게임 상태 (환경 대재앙, 게임 일시정지 등)
+        // 8. 전역 게임 상태 (환경 대재앙, 수위, 숲 살리기 공동 미션)
+        //    평소엔 교사만 조작하지만, 학생들이 나무를 다 심어 미션을 완료하면
+        //    마지막으로 심은 학생이 자동으로 평화 상태로 되돌리는 기능이 있어 학생 쓰기도 허용
         "gameState": {
           ".write": "auth != null"
         },
 
-        // 9. 구역(Plot) 배정 정보 & 영구 보존 대지 매핑 (재접속 시 유지용)
-        "plots": {
-          ".write": "auth != null"
-        },
+        // 9. 구역(Plot) 배정 정보 — 학생이 직접 쓰는 곳이 아니라 교사(hostUid)만 배정
         "assignedPlots": {
-          ".write": "auth != null"
+          ".write": "auth != null && root.child('rooms/' + $roomCode + '/meta/hostUid').val() === auth.uid"
         },
 
-        // 10. 이모지(Emote) 이벤트
-        "emotes": {
-          ".write": "auth != null"
-        },
-
-        // 11. 청크 스냅샷
-        "chunks": {
-          ".write": "auth != null"
-        },
-
-        // 12. 1:1 거래구역 (거래 부스)
+        // 10. 1:1 거래구역 — 참여하는 두 학생이 각자 씀
         "trades": {
           ".write": "auth != null"
         },
 
-        // 13. 1:1 카드 투기장 (가위바위보 배틀)
+        // 11. 1:1 카드 투기장 — 참여하는 두 학생이 각자 씀
         "arenas": {
+          ".write": "auth != null"
+        },
+
+        // 12. 보관 상자 — 누구나 사용 (코드에 존재하지만 기존 규칙엔 빠져 있던 경로, 이번에 추가)
+        "chests": {
           ".write": "auth != null"
         }
       }
     },
-    // 교사용 생성 마을 목록 보관함 (이름/PIN 기반 조회 및 복구)
+    // 교사용 생성 마을 목록 보관함 (이름/PIN 기반 조회 및 복구, 실제 게임 데이터는 들어있지 않음)
+    // "마을 이어하기"와 같은 이유로 UID 제한 없이 열어둠 (잠그면 목록 삭제가 깨질 수 있음)
     "teachers": {
       ".read": "auth != null",
       "$teacherUid": {
