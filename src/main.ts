@@ -1546,6 +1546,18 @@ class GameApp {
       }
 
 
+      // [제작 기능]: 'E' 키를 누르면 기본 제작(2×2) 창 열기 (닫기는 CraftingUI 자체 리스너가 처리)
+      if (e.code === 'KeyE' && !isInput && this.hasGameStarted && !this.player.isModalOpen) {
+        e.preventDefault();
+        this.craftingUI.open();
+      }
+
+      // [제작 기능]: 'C' 키를 누르면 조합대(3×3, 모든 도구 제작 가능) 창 열기 (닫기는 CraftingUI 자체 리스너가 처리)
+      if (e.code === 'KeyC' && !isInput && this.hasGameStarted && !this.player.isModalOpen) {
+        e.preventDefault();
+        this.craftingUI.open(true);
+      }
+
       // [개발자 기능]: 'F' 키를 누르면 비행 모드 온/오프 즉시 토글 (교사 전용)
       if (e.code === 'KeyF' && !this.player.isModalOpen && !isInput) {
         if (this.networkManager.role === 'teacher') {

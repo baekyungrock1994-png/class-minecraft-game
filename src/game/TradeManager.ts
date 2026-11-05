@@ -23,6 +23,7 @@ export interface TradeRoomState {
   p1?: TradeParticipant | null;
   p2?: TradeParticipant | null;
   lastTradeTimestamp?: number;
+  tradeRound?: number;
 }
 
 export class TradeManager {
@@ -126,7 +127,8 @@ export class TradeManager {
     };
 
     await update(roomRef, {
-      [slot]: myParticipant
+      [slot]: myParticipant,
+      tradeRound: room.tradeRound || 1
     });
 
     onDisconnect(ref(this.db, `rooms/${this.roomCode}/trades/room_${roomId}/${slot}`)).remove();
@@ -140,7 +142,7 @@ export class TradeManager {
     if (this.roomUnsubscribe) this.roomUnsubscribe();
 
     const roomRef = ref(this.db, `rooms/${this.roomCode}/trades/room_${this.currentRoomId}`);
-    let lastTradeTimestamp = 0;
+    let processedRound = 0;
 
     this.roomUnsubscribe = onValue(roomRef, async (snap) => {
       if (!snap.exists()) return;
@@ -150,28 +152,28 @@ export class TradeManager {
         this.onRoomStateChange(room);
       }
 
-      // 양쪽 플레이어 모두 승인 완료 감지
-      if (room.p1 && room.p2 && room.p1.confirmed && room.p2.confirmed) {
-        if (!room.lastTradeTimestamp || room.lastTradeTimestamp !== lastTradeTimestamp) {
-          lastTradeTimestamp = Date.now();
+      // 양쪽 플레이어 모두 승인 완료 감지 (서버에 저장된 tradeRound 번호로 중복 실행 방지)
+      const currentRound = room.tradeRound || 1;
+      if (room.p1 && room.p2 && room.p1.confirmed && room.p2.confirmed && currentRound !== processedRound) {
+        processedRound = currentRound;
 
-          // 거래 실행! (내가 p1이면 p1 입장에서, p2면 p2 입장에서 처리)
-          if (this.onTradeExecute) {
-            const myOffer = this.mySlot === 'p1' ? room.p1.offer || null : room.p2.offer || null;
-            const partnerOffer = this.mySlot === 'p1' ? room.p2.offer || null : room.p1.offer || null;
-            this.onTradeExecute(myOffer, partnerOffer);
-          }
+        // 거래 실행! (내가 p1이면 p1 입장에서, p2면 p2 입장에서 처리)
+        if (this.onTradeExecute) {
+          const myOffer = this.mySlot === 'p1' ? room.p1.offer || null : room.p2.offer || null;
+          const partnerOffer = this.mySlot === 'p1' ? room.p2.offer || null : room.p1.offer || null;
+          this.onTradeExecute(myOffer, partnerOffer);
+        }
 
-          // 방 상태 초기화 (다음 거래를 위해 승인 및 제시 품목 리셋)
-          if (this.mySlot === 'p1') {
-            await update(roomRef, {
-              'p1/confirmed': false,
-              'p1/offer': null,
-              'p2/confirmed': false,
-              'p2/offer': null,
-              lastTradeTimestamp: lastTradeTimestamp
-            });
-          }
+        // 방 상태 초기화 (다음 거래를 위해 승인 및 제시 품목 리셋, 라운드 번호 증가)
+        if (this.mySlot === 'p1') {
+          await update(roomRef, {
+            'p1/confirmed': false,
+            'p1/offer': null,
+            'p2/confirmed': false,
+            'p2/offer': null,
+            lastTradeTimestamp: Date.now(),
+            tradeRound: currentRound + 1
+          });
         }
       }
     });

@@ -62,21 +62,6 @@ export const RECIPES: Recipe[] = [
     cost: { plank: 2 },
     result: { type: 'item', itemType: 'STICK', count: 4, name: '막대기', emoji: '🥢' }
   },
-  // 3. 조합대 (가공목재 4개 -> 조합대 1개) [기본 제작 가능]
-  {
-    id: 'crafting_table',
-    name: '조합대 (작업대)',
-    emoji: '🪑',
-    description: '가공 목재 4개로 3x3 정식 조합대 제작 (설치 후 우클릭하여 모든 도구 제작 가능)',
-    requiresTable: false,
-    grid: [
-      'PLANK', 'PLANK', null,
-      'PLANK', 'PLANK', null,
-      null, null, null
-    ],
-    cost: { plank: 4 },
-    result: { type: 'block', blockType: BlockType.CRAFTING_TABLE, count: 1, name: '조합대', emoji: '🪑' }
-  },
   // 3-1. 보관 상자 (가공목재 8개 -> 10칸 보관함 1개)
   {
     id: 'chest',
@@ -354,9 +339,8 @@ export class CraftingUI {
       const targetTag = (e.target as HTMLElement)?.tagName;
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(targetTag)) return;
 
-      // [수정사항]: C 키로 조합창이 열리는 기능 삭제.
-      // E 키는 창이 열려있을 때 닫기용으로 작동.
-      if (e.code === 'KeyE' && this.isOpen) {
+      // E 키(기본 제작)와 C 키(조합대)는 창이 열려있을 때 닫기용으로도 작동.
+      if ((e.code === 'KeyE' || e.code === 'KeyC') && this.isOpen) {
         this.close();
       } else if (e.code === 'Escape' && this.isOpen) {
         this.close();

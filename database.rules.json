@@ -61,6 +61,16 @@
         // 11. 청크 스냅샷
         "chunks": {
           ".write": "auth != null"
+        },
+
+        // 12. 1:1 거래구역 (거래 부스)
+        "trades": {
+          ".write": "auth != null"
+        },
+
+        // 13. 1:1 카드 투기장 (가위바위보 배틀)
+        "arenas": {
+          ".write": "auth != null"
         }
       }
     },
