@@ -366,4 +366,7 @@ export interface PlotInfo {
   centerZ: number;
 }
 
+// 공용 대지: 특정 학생에게 배정되지 않고 누구나 자유롭게 건축/수정할 수 있는 구역 (대지 #1~16과 별개)
+export const PUBLIC_PLOT_ID = 0;
+
 export type WorldType = 'town' | 'resource';

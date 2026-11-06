@@ -913,8 +913,8 @@ export class PlayerController {
           if (block === BlockType.AIR || block === BlockType.WATER || block === BlockType.LADDER) {
             continue;
           }
-          // 열려있는 문은 통과 가능
-          if (block === BlockType.DOOR && this.openDoors.has(`${x}_${y}_${z}`)) {
+          // 열려있는 문은 통과 가능 (키: "월드타입_x_y_z")
+          if (block === BlockType.DOOR && this.openDoors.has(`${this.world.currentWorldType}_${x}_${y}_${z}`)) {
             continue;
           }
           // 울타리는 1.5블록 높이 판정 (위로 점프해서 넘지 못하도록 발이 1.5블록 아래면 충돌)

@@ -11,7 +11,8 @@ import {
   PLOT_GRID_COUNT,
   ROAD_WIDTH,
   PlotInfo,
-  WorldType
+  WorldType,
+  PUBLIC_PLOT_ID
 } from './Constants.ts';
 import { createBlockTextureAtlas, getTileIndexForBlockFace, getAtlasUV } from './TextureAtlas.ts';
 
@@ -124,6 +125,10 @@ export class VoxelWorld {
 
   public plotSignsGroup: THREE.Group = new THREE.Group();
 
+  // 2칸 높이 문(DOOR): 청크에 병합되지 않는 별도 회전 애니메이션 오브젝트로 관리
+  public doorsGroup: THREE.Group = new THREE.Group();
+  private doorVisuals: Map<string, { group: THREE.Group; panel: THREE.Mesh; currentAngle: number; targetAngle: number; worldType: WorldType }> = new Map();
+
   private sharedMaterial: THREE.MeshLambertMaterial;
 
   // 찰랑거리는 3D 파도 애니메이션을 가진 전용 물 재질
@@ -175,6 +180,7 @@ export class VoxelWorld {
     this.scene.add(this.townChunkGroup);
     this.scene.add(this.resourceChunkGroup);
     this.scene.add(this.plotSignsGroup);
+    this.scene.add(this.doorsGroup);
 
     this.waterMaterial = new THREE.MeshStandardMaterial({
       color: 0x0284c7, // 청량하고 맑은 스카이 블루
@@ -375,6 +381,8 @@ export class VoxelWorld {
   }
 
   /**
+   * 지정한 월드(town/resource)의 블록을 조회 (현재 활성 월드가 아니어도 조회 가능)
+   */
   public getBlockForWorld(worldType: WorldType, x: number, y: number, z: number): BlockType {
     if (y < 0 || y >= WORLD_HEIGHT) return BlockType.AIR;
     const map = worldType === 'town' ? this.townBlocks : this.resourceBlocks;
@@ -416,7 +424,122 @@ export class VoxelWorld {
     if (localZ === 0) this.buildChunkMesh(worldType, cx, cz - 1);
     if (localZ === CHUNK_SIZE - 1) this.buildChunkMesh(worldType, cx, cz + 1);
 
+    // 문(DOOR) 블록이 관련된 변경이면 2칸짜리 문 3D 오브젝트를 새로 만들거나 정리
+    if (current === BlockType.DOOR || targetType === BlockType.DOOR) {
+      this.syncDoorVisualAt(worldType, x, y, z);
+      this.syncDoorVisualAt(worldType, x, y - 1, z);
+    }
+
     return true;
+  }
+
+  private doorKey(worldType: WorldType, x: number, y: number, z: number): string {
+    return `${worldType}_${x}_${y}_${z}`;
+  }
+
+  /**
+   * (x,y,z)를 "아랫칸"으로 하는 2칸짜리 문이 여전히 온전한지 확인하고,
+   * 온전하면 3D 오브젝트를 만들고(이미 있으면 유지), 아니면 제거한다.
+   */
+  private syncDoorVisualAt(worldType: WorldType, x: number, y: number, z: number): void {
+    const key = this.doorKey(worldType, x, y, z);
+    const bottomIsDoor = this.getBlockForWorld(worldType, x, y, z) === BlockType.DOOR;
+    const topIsDoor = this.getBlockForWorld(worldType, x, y + 1, z) === BlockType.DOOR;
+
+    if (bottomIsDoor && topIsDoor) {
+      this.ensureDoorVisual(worldType, x, y, z);
+    } else {
+      this.removeDoorVisual(key);
+    }
+  }
+
+  private ensureDoorVisual(worldType: WorldType, x: number, y: number, z: number): void {
+    const key = this.doorKey(worldType, x, y, z);
+    if (this.doorVisuals.has(key)) return;
+
+    const isWall = (bx: number, by: number, bz: number): boolean => {
+      const b = this.getBlockForWorld(worldType, bx, by, bz);
+      return b !== BlockType.AIR && b !== BlockType.DOOR && b !== BlockType.WATER;
+    };
+    const wallOnX = isWall(x - 1, y, z) || isWall(x - 1, y + 1, z) || isWall(x + 1, y, z) || isWall(x + 1, y + 1, z);
+    const wallOnZ = isWall(x, y, z - 1) || isWall(x, y + 1, z - 1) || isWall(x, y, z + 1) || isWall(x, y + 1, z + 1);
+    const panelAlongX = wallOnX && !wallOnZ;
+
+    const doorMeta = BLOCK_METAS[BlockType.DOOR];
+    const panelMat = new THREE.MeshLambertMaterial({ color: doorMeta.color });
+    const handleMat = new THREE.MeshLambertMaterial({ color: 0xfde68a });
+
+    const group = new THREE.Group();
+    let panel: THREE.Mesh;
+
+    if (panelAlongX) {
+      // 문짝이 X축을 따라 눕고, 경첩은 그룹 원점(x, z+0.5)에 위치 -> Y축 회전 시 Z 방향으로 열림
+      group.position.set(x, y, z + 0.5);
+      const panelGeo = new THREE.BoxGeometry(0.9, 1.9, 0.08);
+      panel = new THREE.Mesh(panelGeo, panelMat);
+      panel.position.set(0.47, 0.95, 0);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), handleMat);
+      handle.position.set(0.82, 0.95, 0.06);
+      panel.add(handle);
+    } else {
+      // 문짝이 Z축을 따라 눕고, 경첩은 그룹 원점(x+0.5, z) -> Y축 회전 시 X 방향으로 열림
+      group.position.set(x + 0.5, y, z);
+      const panelGeo = new THREE.BoxGeometry(0.08, 1.9, 0.9);
+      panel = new THREE.Mesh(panelGeo, panelMat);
+      panel.position.set(0, 0.95, 0.47);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), handleMat);
+      handle.position.set(0.06, 0.95, 0.82);
+      panel.add(handle);
+    }
+
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    group.add(panel);
+    group.visible = (worldType === this.currentWorldType);
+    this.doorsGroup.add(group);
+
+    this.doorVisuals.set(key, { group, panel, currentAngle: 0, targetAngle: 0, worldType });
+  }
+
+  private removeDoorVisual(key: string): void {
+    const visual = this.doorVisuals.get(key);
+    if (!visual) return;
+    this.doorsGroup.remove(visual.group);
+    visual.panel.geometry.dispose();
+    this.doorVisuals.delete(key);
+  }
+
+  /**
+   * 저장된 월드 데이터를 일괄 로드한 직후(setBlockForWorld를 거치지 않는 빠른 경로) 호출:
+   * 블록맵을 스캔해서 이미 존재하는 모든 2칸짜리 문의 3D 오브젝트를 생성
+   */
+  public rebuildAllDoorVisuals(worldType: WorldType): void {
+    const map = worldType === 'town' ? this.townBlocks : this.resourceBlocks;
+    for (const key of map.keys()) {
+      const [xs, ys, zs] = key.split(',');
+      const x = parseInt(xs, 10);
+      const y = parseInt(ys, 10);
+      const z = parseInt(zs, 10);
+      if (map.get(key) === BlockType.DOOR) {
+        this.syncDoorVisualAt(worldType, x, y, z);
+      }
+    }
+  }
+
+  /** 문 열림/닫힘 상태 설정 (실제 회전은 update()에서 부드럽게 애니메이션) */
+  public setDoorOpenState(worldType: WorldType, x: number, y: number, z: number, isOpen: boolean): void {
+    const visual = this.doorVisuals.get(this.doorKey(worldType, x, y, z));
+    if (!visual) return;
+    visual.targetAngle = isOpen ? Math.PI / 2 : 0;
+  }
+
+  private updateDoors(delta: number): void {
+    for (const visual of this.doorVisuals.values()) {
+      if (Math.abs(visual.currentAngle - visual.targetAngle) > 0.001) {
+        visual.currentAngle += (visual.targetAngle - visual.currentAngle) * Math.min(1, delta * 6);
+        visual.group.rotation.y = visual.currentAngle;
+      }
+    }
   }
 
   /**
@@ -458,6 +581,20 @@ export class VoxelWorld {
         id++;
       }
     }
+
+    // 공용 대지: 16개 개인 대지와 겹치지 않는 별도 구역, 학생 정원(16명)에는 영향 없음
+    const publicSize = PLOT_SIZE;
+    const publicMinX = -Math.floor(publicSize / 2);
+    this.plots.push({
+      id: PUBLIC_PLOT_ID,
+      name: '공용 대지',
+      minX: publicMinX,
+      maxX: publicMinX + publicSize - 1,
+      minZ: -45,
+      maxZ: -45 + publicSize - 1,
+      centerX: publicMinX + (publicSize - 1) / 2,
+      centerZ: -45 + (publicSize - 1) / 2,
+    });
 
     this.createPlotSigns();
   }
@@ -513,15 +650,15 @@ export class VoxelWorld {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // 상단 큰 글씨: 대지 번호
+      // 상단 큰 글씨: 대지 번호 (공용 대지는 번호 대신 전용 표시)
       ctx.font = '900 48px sans-serif';
       ctx.fillStyle = '#261609'; // 짙은 나무 각인색
-      ctx.fillText(`대지 #${plot.id}`, 160, 52);
+      ctx.fillText(plot.id === PUBLIC_PLOT_ID ? '🌍 공용 대지' : `대지 #${plot.id}`, 160, 52);
 
       // 하단 글씨: 구역 이름
       ctx.font = 'bold 28px sans-serif';
       ctx.fillStyle = '#3a2412';
-      ctx.fillText(`${plot.name}`, 160, 112);
+      ctx.fillText(plot.id === PUBLIC_PLOT_ID ? '누구나 건축 가능!' : `${plot.name}`, 160, 112);
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.magFilter = THREE.NearestFilter;
@@ -1250,6 +1387,12 @@ export class VoxelWorld {
     trunkKeys: string[],
     leafKeys: string[]
   ): void {
+    // 이미 같은 위치에 등록된 나무가 있으면 중복 등록하지 않음
+    // (직접 심은 사람은 즉시 로컬 등록 + 네트워크로 전파된 동일 나무를 다시 수신하거나,
+    //  재접속 시 과거 심은 나무 전체를 다시 불러올 때 중복 카운트되는 것을 방지)
+    const alreadyExists = this.resourceTrees.some(t => t.rootX === rootX && t.rootY === rootY && t.rootZ === rootZ);
+    if (alreadyExists) return;
+
     const nextId = this.resourceTrees.length + 1000 + Math.floor(Math.random() * 10000);
     this.resourceTrees.push({
       id: nextId,
@@ -1381,6 +1524,10 @@ export class VoxelWorld {
     this.currentWorldType = type;
     this.blocks = type === 'town' ? this.townBlocks : this.resourceBlocks;
 
+    for (const visual of this.doorVisuals.values()) {
+      visual.group.visible = (visual.worldType === type);
+    }
+
     if (type === 'town') {
       this.townChunkGroup.visible = true;
       this.resourceChunkGroup.visible = false;
@@ -1435,6 +1582,9 @@ export class VoxelWorld {
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           const blockType = getBlockFromMap(x, y, z);
           if (blockType === BlockType.AIR) continue;
+
+          // 문(DOOR)은 별도의 애니메이션 가능한 3D 오브젝트로 그려지므로 청크 병합 지오메트리에서 제외
+          if (blockType === BlockType.DOOR) continue;
 
           // [찰랑거리는 물 블록 렌더링]: 투명 물 전용 메시로 구성
           if (blockType === BlockType.WATER) {
@@ -1603,6 +1753,7 @@ export class VoxelWorld {
   public update(delta: number): void {
     this.waterTime += delta;
     this.waterUniforms.uTime.value = this.waterTime;
+    this.updateDoors(delta);
   }
 
   /**

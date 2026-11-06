@@ -40,6 +40,18 @@ export interface PlayerNetworkData {
   lastActive: number;
 }
 
+/**
+ * 자원 구역에 새로 심어진 나무 (원래 생성된 50그루와 별개로, 심은 사람 외 다른 모든 플레이어의
+ * 화면에도 "살아있는 나무"로 집계되도록 전파한다)
+ */
+export interface ResourceTreeDelta {
+  rootX: number;
+  rootY: number;
+  rootZ: number;
+  trunkKeys: string[];
+  leafKeys: string[];
+}
+
 export interface BlockDeltaData {
   worldType: WorldType;
   x: number;
@@ -64,6 +76,21 @@ export interface JoinRequestData {
   requestedAt: number;
   status: 'pending' | 'approved' | 'rejected';
   plotId?: number;
+}
+
+/**
+ * 2칸 높이 문(DOOR)의 열림/닫힘 상태 및 소유자/비밀번호 정보
+ * (비밀번호는 평문 저장 — 실제 보안이 아니라 친구끼리 가볍게 잠그는 용도의 캐주얼 기능)
+ */
+export interface DoorData {
+  worldType: WorldType;
+  x: number;
+  y: number;
+  z: number;
+  isOpen: boolean;
+  ownerUid: string;
+  ownerName: string;
+  password: string | null;
 }
 
 /**
@@ -156,6 +183,13 @@ export class NetworkManager {
   public onJoinRejected?: () => void;
   public onKicked?: () => void;
   public joinTimestamp: number = Date.now();
+
+  // 자원 구역에 새로 심어진 나무 실시간 동기화
+  public onResourceTreePlanted?: (tree: ResourceTreeDelta) => void;
+
+  // 문(DOOR) 열림/닫힘·소유자·비밀번호 실시간 동기화
+  public onDoorChange?: (door: DoorData) => void;
+  public onDoorRemoved?: (worldType: WorldType, x: number, y: number, z: number) => void;
 
   // 캐릭터 클릭 1:1 신청 (거래/카드 투기장)
   public onIncomingInvite?: (invite: InviteData) => void;
@@ -963,6 +997,63 @@ export class NetworkManager {
         }
       });
     }
+
+    // 12. [모든 플레이어] 자원 구역에 새로 심어진 나무 실시간 수신 (심은 사람 외 화면에도 생존 나무로 집계)
+    const resourceTreesRef = ref(this.db, `rooms/${this.roomCode}/resourceTrees`);
+    onChildAdded(resourceTreesRef, (snap) => {
+      if (!snap.exists()) return;
+      const tree = snap.val() as ResourceTreeDelta;
+      if (this.onResourceTreePlanted) {
+        this.onResourceTreePlanted(tree);
+      }
+    });
+
+    // 13. [모든 플레이어] 문(DOOR) 설치/열림닫힘/제거 실시간 수신
+    const doorsRef = ref(this.db, `rooms/${this.roomCode}/doors`);
+    onChildAdded(doorsRef, (snap) => {
+      if (!snap.exists()) return;
+      if (this.onDoorChange) this.onDoorChange(snap.val() as DoorData);
+    });
+    onChildChanged(doorsRef, (snap) => {
+      if (!snap.exists()) return;
+      if (this.onDoorChange) this.onDoorChange(snap.val() as DoorData);
+    });
+    onChildRemoved(doorsRef, (snap) => {
+      if (!snap.exists()) return;
+      const door = snap.val() as DoorData;
+      if (this.onDoorRemoved) this.onDoorRemoved(door.worldType, door.x, door.y, door.z);
+    });
+  }
+
+  /**
+   * 자원 구역에 새로 심은 나무를 다른 모든 플레이어에게도 전파 (나무 생존 카운트 동기화)
+   */
+  public async sendResourceTreePlanted(rootX: number, rootY: number, rootZ: number, trunkKeys: string[], leafKeys: string[]): Promise<void> {
+    if (!this.roomCode) return;
+    const key = `${rootX}_${rootY}_${rootZ}`;
+    const treeRef = ref(this.db, `rooms/${this.roomCode}/resourceTrees/${key}`);
+    const tree: ResourceTreeDelta = { rootX, rootY, rootZ, trunkKeys, leafKeys };
+    try {
+      await set(treeRef, tree);
+    } catch (e) {
+      console.warn('sendResourceTreePlanted error:', e);
+    }
+  }
+
+  /**
+   * 재접속/신규 참가 시, 그동안 심어진 자원 구역 나무 전체를 한 번에 불러옴
+   */
+  public async fetchAllResourceTrees(): Promise<ResourceTreeDelta[]> {
+    if (!this.roomCode) return [];
+    try {
+      const snap = await get(ref(this.db, `rooms/${this.roomCode}/resourceTrees`));
+      if (!snap.exists()) return [];
+      const val = snap.val() as Record<string, ResourceTreeDelta>;
+      return Object.values(val);
+    } catch (e) {
+      console.warn('fetchAllResourceTrees error:', e);
+      return [];
+    }
   }
 
   /**
@@ -1044,6 +1135,58 @@ export class NetworkManager {
       await update(restorationRef, { active: false, cancelledAt: Date.now() });
     } catch (e) {
       console.warn('cancelRestoration error:', e);
+    }
+  }
+
+  private doorKey(worldType: WorldType, x: number, y: number, z: number): string {
+    return `${worldType}_${x}_${y}_${z}`;
+  }
+
+  /** 문을 새로 설치할 때, 소유자/비밀번호 정보와 함께 등록 (아랫칸 좌표 기준) */
+  public async setDoorData(worldType: WorldType, x: number, y: number, z: number, ownerUid: string, ownerName: string, password: string | null): Promise<void> {
+    if (!this.roomCode) return;
+    const key = this.doorKey(worldType, x, y, z);
+    const door: DoorData = { worldType, x, y, z, isOpen: false, ownerUid, ownerName, password };
+    try {
+      await set(ref(this.db, `rooms/${this.roomCode}/doors/${key}`), door);
+    } catch (e) {
+      console.warn('setDoorData error:', e);
+    }
+  }
+
+  /** 문을 부쉈을 때 등록 정보 제거 */
+  public async removeDoor(worldType: WorldType, x: number, y: number, z: number): Promise<void> {
+    if (!this.roomCode) return;
+    const key = this.doorKey(worldType, x, y, z);
+    try {
+      await remove(ref(this.db, `rooms/${this.roomCode}/doors/${key}`));
+    } catch (e) {
+      console.warn('removeDoor error:', e);
+    }
+  }
+
+  /** 문 열기/닫기 상태 변경 (비밀번호 검사는 호출 전 클라이언트에서 수행) */
+  public async setDoorOpen(worldType: WorldType, x: number, y: number, z: number, isOpen: boolean): Promise<void> {
+    if (!this.roomCode) return;
+    const key = this.doorKey(worldType, x, y, z);
+    try {
+      await update(ref(this.db, `rooms/${this.roomCode}/doors/${key}`), { isOpen });
+    } catch (e) {
+      console.warn('setDoorOpen error:', e);
+    }
+  }
+
+  /** 재접속/신규 참가 시, 그동안 설치된 문 전체를 한 번에 불러옴 */
+  public async fetchAllDoors(): Promise<DoorData[]> {
+    if (!this.roomCode) return [];
+    try {
+      const snap = await get(ref(this.db, `rooms/${this.roomCode}/doors`));
+      if (!snap.exists()) return [];
+      const val = snap.val() as Record<string, DoorData>;
+      return Object.values(val);
+    } catch (e) {
+      console.warn('fetchAllDoors error:', e);
+      return [];
     }
   }
 

@@ -4,8 +4,8 @@ import { PlayerController, BlockInteractEvent } from './game/PlayerController.ts
 import { HotbarUI } from './ui/Hotbar.ts';
 import { CraftingUI } from './ui/CraftingUI.ts';
 import { ShopUI } from './ui/ShopUI.ts';
-import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS } from './core/Constants.ts';
-import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData, RestorationState, getRestorationWaterLevel, InviteData } from './core/NetworkManager.ts';
+import { BlockType, ToolType, WorldType, WORLD_HEIGHT, BLOCK_METAS, TOOL_METAS, PUBLIC_PLOT_ID } from './core/Constants.ts';
+import { NetworkManager, BlockDeltaData, PlayerNetworkData, ChatMessage, JoinRequestData, RestorationState, getRestorationWaterLevel, InviteData, DoorData } from './core/NetworkManager.ts';
 import { ItemDropManager } from './game/ItemDropManager.ts';
 import { ChestManager } from './game/ChestManager.ts';
 import { TradeManager } from './game/TradeManager.ts';
@@ -51,6 +51,9 @@ class GameApp {
   private targetedPlayerName: string = '';
   private targetedPlayerMesh: THREE.Object3D | null = null;
   private pendingInviteTimeout?: number;
+
+  // 2칸짜리 문(DOOR) 상태 캐시 (열림/닫힘, 소유자, 비밀번호) — "worldType_x_y_z"(아랫칸 기준) 키
+  private doorsState: Record<string, DoorData> = {};
 
   // 채팅 쿨다운 (5초) 및 대재앙 평화모드 오버라이드
   private lastChatSendTime: number = 0;
@@ -550,16 +553,37 @@ class GameApp {
       this.updatePlayerSelectedItem();
     };
 
-    // 나무 문 열기/닫기 (열린 문은 통과 가능)
+    // 2칸짜리 문 열기/닫기 (비밀번호가 걸려있으면 주인/선생님 외에는 입력 필요)
     this.player.onToggleDoor = (x: number, y: number, z: number) => {
-      const key = `${x}_${y}_${z}`;
-      if (this.player.openDoors.has(key)) {
-        this.player.openDoors.delete(key);
-        this.showNotification('🚪 문을 닫았습니다.', '🔒');
-      } else {
-        this.player.openDoors.add(key);
-        this.showNotification('🚪 문을 열었습니다. 지나갈 수 있어요!', '🔓');
+      const worldType = this.world.currentWorldType;
+      let bottomY = y;
+      if (this.world.getBlock(x, y - 1, z) === BlockType.DOOR) {
+        bottomY = y - 1;
       }
+      const key = this.doorStateKey(worldType, x, bottomY, z);
+      const door = this.doorsState[key];
+      const isTeacher = (this.networkManager && this.networkManager.role === 'teacher') || this.player.bypassPlotRestriction;
+
+      if (!door) {
+        // 과거(비밀번호 기능 이전)에 설치된 문: 기록이 없으므로 비밀번호 없이 자유롭게 토글
+        this.networkManager.setDoorOpen(worldType, x, bottomY, z, true);
+        this.showNotification('🚪 문을 열었습니다!', '🔓');
+        return true;
+      }
+
+      const isOwner = door.ownerUid === this.networkManager.currentUser?.uid;
+      if (!door.isOpen && door.password && !isOwner && !isTeacher) {
+        const entered = window.prompt('🔒 비밀번호가 설정된 문입니다. 비밀번호를 입력하세요:');
+        if (entered === null) return true;
+        if (entered !== door.password) {
+          this.showNotification('❌ 비밀번호가 틀렸습니다!', '🔒');
+          return true;
+        }
+      }
+
+      const nextOpen = !door.isOpen;
+      this.networkManager.setDoorOpen(worldType, x, bottomY, z, nextOpen);
+      this.showNotification(nextOpen ? '🚪 문을 열었습니다!' : '🚪 문을 닫았습니다.', nextOpen ? '🔓' : '🔒');
       return true;
     };
 
@@ -721,6 +745,7 @@ class GameApp {
           }
           setTimeout(() => this.checkDeforestation(), 50);
         }
+        this.cleanupDoorPartner(event.x, event.y, event.z, event.type);
         return true;
       } else {
         // 평지 주거 마을 (town)
@@ -734,6 +759,7 @@ class GameApp {
         if (isTeacher) {
           this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
           this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
+          this.cleanupDoorPartner(event.x, event.y, event.z, event.type);
           return true;
         }
 
@@ -746,8 +772,8 @@ class GameApp {
           return false;
         }
 
-        // 2) 다른 학생의 대지 파괴 시도 차단 (다른 사람 구역 및 건축물 절대 수정 불가!)
-        if (plot.id !== this.player.assignedPlotIndex) {
+        // 2) 다른 학생의 대지 파괴 시도 차단 (공용 대지는 예외로 누구나 가능)
+        if (plot.id !== this.player.assignedPlotIndex && plot.id !== PUBLIC_PLOT_ID) {
           this.showNotification(`🚫 [대지 #${plot.id}]은 다른 친구의 구역입니다! 다른 학생의 건축물은 수정할 수 없습니다.`, '🛡️');
           return false;
         }
@@ -755,6 +781,7 @@ class GameApp {
         // 본인 대지(#assignedPlotIndex) 내 정상 파괴
         this.giveOrDropItem(event.type, 1, event.x, event.y, event.z);
         this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, BlockType.AIR);
+        this.cleanupDoorPartner(event.x, event.y, event.z, event.type);
         return true;
       }
     } else if (event.action === 'place') {
@@ -790,11 +817,20 @@ class GameApp {
             return false;
           }
 
-          // 2) 다른 학생의 대지 건축 차단
-          if (plot.id !== this.player.assignedPlotIndex) {
+          // 2) 다른 학생의 대지 건축 차단 (공용 대지는 예외로 누구나 가능)
+          if (plot.id !== this.player.assignedPlotIndex && plot.id !== PUBLIC_PLOT_ID) {
             this.showNotification(`🚫 [대지 #${plot.id}]은 다른 학생의 구역입니다! 할당받은 나만의 대지(#${this.player.assignedPlotIndex}) 안에서만 건축할 수 있습니다!`, '🛡️');
             return false;
           }
+        }
+      }
+
+      // 문(DOOR)은 2칸 높이로 설치되므로 윗칸도 비어있어야 함
+      if (event.type === BlockType.DOOR) {
+        const topY = event.y + 1;
+        if (topY >= WORLD_HEIGHT || this.world.getBlock(event.x, topY, event.z) !== BlockType.AIR) {
+          this.showNotification('🚪 문은 위아래 2칸이 모두 비어있어야 설치할 수 있습니다!', '🚫');
+          return false;
         }
       }
 
@@ -811,9 +847,70 @@ class GameApp {
 
       // 실시간 네트워크로 블록 설치 전파
       this.networkManager.sendBlockDelta(this.world.currentWorldType, event.x, event.y, event.z, event.type);
+
+      if (event.type === BlockType.DOOR) {
+        this.placeDoorTopAndRegister(event.x, event.y, event.z);
+      }
       return true;
     }
     return true;
+  }
+
+  private doorStateKey(worldType: WorldType, x: number, y: number, z: number): string {
+    return `${worldType}_${x}_${y}_${z}`;
+  }
+
+  /** 문 상태(열림/닫힘) 변경을 3D 애니메이션 + 충돌 통과 판정에 함께 반영 */
+  private applyDoorState(door: DoorData): void {
+    const key = this.doorStateKey(door.worldType, door.x, door.y, door.z);
+    this.doorsState[key] = door;
+    this.world.setDoorOpenState(door.worldType, door.x, door.y, door.z, door.isOpen);
+
+    const bottomKey = `${door.worldType}_${door.x}_${door.y}_${door.z}`;
+    const topKey = `${door.worldType}_${door.x}_${door.y + 1}_${door.z}`;
+    if (door.isOpen) {
+      this.player.openDoors.add(bottomKey);
+      this.player.openDoors.add(topKey);
+    } else {
+      this.player.openDoors.delete(bottomKey);
+      this.player.openDoors.delete(topKey);
+    }
+  }
+
+  /** 문 아랫칸 설치가 허용된 직후, 윗칸도 함께 설치하고 비밀번호(선택) & 소유자 정보를 등록 */
+  private placeDoorTopAndRegister(x: number, y: number, z: number): void {
+    const worldType = this.world.currentWorldType;
+    this.world.setBlock(x, y + 1, z, BlockType.DOOR);
+    this.networkManager.sendBlockDelta(worldType, x, y + 1, z, BlockType.DOOR);
+
+    const myUid = this.networkManager.currentUser?.uid || '';
+    const myName = this.networkManager.playerName || '친구';
+    const input = window.prompt('🔒 이 문에 비밀번호를 설정할까요?\n(설정하면 나와 선생님만 바로 열 수 있고, 다른 친구는 비밀번호를 입력해야 열 수 있어요)\n\n비워두고 확인을 누르면 모두가 자유롭게 열 수 있는 문이 됩니다.');
+    const password = input && input.trim() ? input.trim() : null;
+
+    this.networkManager.setDoorData(worldType, x, y, z, myUid, myName, password);
+    this.showNotification(password ? '🚪 문을 설치했습니다! 비밀번호가 걸렸어요.' : '🚪 문을 설치했습니다!', '🚪');
+  }
+
+  /** 문 블록이 파괴될 때, 짝이 되는 나머지 한 칸도 함께 제거하고 문 등록 정보를 정리 */
+  private cleanupDoorPartner(x: number, y: number, z: number, brokenType: BlockType): void {
+    if (brokenType !== BlockType.DOOR) return;
+    const worldType = this.world.currentWorldType;
+
+    let partnerY: number | null = null;
+    if (this.world.getBlock(x, y - 1, z) === BlockType.DOOR) {
+      partnerY = y - 1;
+    } else if (this.world.getBlock(x, y + 1, z) === BlockType.DOOR) {
+      partnerY = y + 1;
+    }
+
+    if (partnerY !== null) {
+      this.world.setBlock(x, partnerY, z, BlockType.AIR);
+      this.networkManager.sendBlockDelta(worldType, x, partnerY, z, BlockType.AIR);
+    }
+
+    const bottomY = partnerY !== null ? Math.min(y, partnerY) : y;
+    this.networkManager.removeDoor(worldType, x, bottomY, z);
   }
 
   /**
@@ -1946,6 +2043,23 @@ class GameApp {
       this.handleRestorationChange(state);
     };
 
+    // 5-4-1. 다른 플레이어가 자원 구역에 새로 심은 나무 실시간 수신 (내 화면의 생존 나무 집계에도 반영)
+    this.networkManager.onResourceTreePlanted = (tree) => {
+      this.world.registerPlantedTreeInResource(tree.rootX, tree.rootY, tree.rootZ, tree.trunkKeys, tree.leafKeys);
+      this.checkDeforestation();
+    };
+
+    // 5-4-2. 문(DOOR) 설치/열림닫힘 실시간 수신 (모든 플레이어 화면에서 같은 상태로 보이고 통과 판정도 동일하게 적용)
+    this.networkManager.onDoorChange = (door) => {
+      this.applyDoorState(door);
+    };
+    this.networkManager.onDoorRemoved = (worldType, x, y, z) => {
+      const key = this.doorStateKey(worldType, x, y, z);
+      delete this.doorsState[key];
+      this.player.openDoors.delete(`${worldType}_${x}_${y}_${z}`);
+      this.player.openDoors.delete(`${worldType}_${x}_${y + 1}_${z}`);
+    };
+
     // 5-5. 캐릭터 클릭으로 받은 1:1 거래/카드 투기장 신청 실시간 수신
     this.networkManager.onIncomingInvite = (invite: InviteData) => {
       this.showIncomingInvite(invite);
@@ -2025,6 +2139,12 @@ class GameApp {
    * (다른 사람이 이미 캔 나무/광물이나 설치한 블록이 즉시 화면에 정확히 반영되도록 보장)
    */
   public async syncInitialWorldDeltas(): Promise<void> {
+    // 그동안 다른 친구들이 자원 구역에 심어둔 나무 전체를 먼저 등록 (벌목 카운트가 정확하도록)
+    const plantedTrees = await this.networkManager.fetchAllResourceTrees();
+    for (const tree of plantedTrees) {
+      this.world.registerPlantedTreeInResource(tree.rootX, tree.rootY, tree.rootZ, tree.trunkKeys, tree.leafKeys);
+    }
+
     const deltas = await this.networkManager.fetchAllWorldDeltas();
     if (!deltas) return;
 
@@ -2069,10 +2189,18 @@ class GameApp {
     // 변경된 블록이 있는 경우 월드 청크 일괄 재구성
     if (modifiedTown) {
       this.world.rebuildAllChunksForWorld('town');
+      this.world.rebuildAllDoorVisuals('town');
     }
     if (modifiedResource) {
       this.world.rebuildAllChunksForWorld('resource');
+      this.world.rebuildAllDoorVisuals('resource');
       this.checkDeforestation();
+    }
+
+    // 문 3D 오브젝트가 모두 만들어진 뒤, 저장된 열림/닫힘·소유자·비밀번호 상태를 반영
+    const doors = await this.networkManager.fetchAllDoors();
+    for (const door of doors) {
+      this.applyDoorState(door);
     }
   }
 
@@ -2546,7 +2674,9 @@ class GameApp {
 
       const plot = this.world.getPlotAt(this.player.position.x, this.player.position.z);
       if (plot) {
-        if (plot.id === this.player.assignedPlotIndex) {
+        if (plot.id === PUBLIC_PLOT_ID) {
+          this.currentZoneLabelEl.textContent = `🌍 공용 대지 (누구나 건축 가능, 내 자리: #${this.player.assignedPlotIndex}번)`;
+        } else if (plot.id === this.player.assignedPlotIndex) {
           this.currentZoneLabelEl.textContent = `🏡 내 대지 (#${plot.id}) 내부 [나의 자리]`;
         } else {
           this.currentZoneLabelEl.textContent = `대지 #${plot.id} 영역 (내 자리는 #${this.player.assignedPlotIndex}번)`;
@@ -3398,16 +3528,18 @@ class GameApp {
     }
 
     // 7. 자원 구역일 경우 resourceTrees 목록에 정식 등록 및 환경/벌목 카운트 갱신
+    //    (다른 모든 플레이어의 화면에서도 "살아있는 나무"로 집계되도록 네트워크로 전파)
     if (isResourceWorld) {
       this.world.registerPlantedTreeInResource(plantX, plantY, plantZ, trunkKeys, leafKeys);
+      this.networkManager.sendResourceTreePlanted(plantX, plantY, plantZ, trunkKeys, leafKeys);
       this.checkDeforestation();
       this.showNotification('🌱 자원 구역에 참나무를 심어 숲을 복원했습니다! (환경 수치 회복)', '🌲');
+
+      // 8. 자원 구역 식수만 반 전체 "숲 살리기" 미션에 기여 (내 대지/평지 마을 식수는 미션에 포함되지 않음)
+      this.contributeSaplingToRestoration();
     } else {
       this.showNotification(`🌱 내 대지(#${this.player.assignedPlotIndex})에 참나무를 심었습니다!`, '🏡');
     }
-
-    // 8. 홍수 중이면 반 전체 "숲 살리기" 미션에 1그루 기여 (모두의 화면에서 수위가 함께 내려감)
-    this.contributeSaplingToRestoration();
 
     this.player.viewModel.triggerSwing();
     this.updatePlayerSelectedItem();
